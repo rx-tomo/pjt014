@@ -1,0 +1,501 @@
+# pjt014 初期コミット（MVPスキャフォールド）
+
+> これをそのままファイルに貼り付け→コミットすれば、Next.js 15 + Supabase + GBP API 連携の最小構成で動き出します。**Node 22 LTS** を推奨。
+
+---
+
+## 0. ファイルツリー（初期）
+
+```
+.
+├─ .gitignore
+├─ .nvmrc
+├─ README.md
+├─ package.json
+├─ tsconfig.json
+├─ next.config.mjs
+├─ postcss.config.mjs
+├─ tailwind.config.ts
+├─ styles/
+│  └─ globals.css
+├─ app/
+│  ├─ layout.tsx
+│  ├─ page.tsx
+│  └─ api/
+│     └─ gbp/
+│        ├─ oauth/route.ts            # OAuth開始
+│        └─ callback/route.ts         # OAuthリダイレクト受け
+├─ lib/
+│  ├─ google.ts                        # Google OAuth/GBP クライアント
+│  └─ supabase.ts                      # Supabase サーバクライアント
+├─ supabase/
+│  └─ migrations/
+│     └─ 0001_init.sql                 # テナント/RBAC/監査 ほか（抜粋）
+└─ worker/
+   └─ gbp-worker.ts                    # バッチ/レート制御ワーカー（pg-boss）
+```
+
+---
+
+## 1. .gitignore
+
+```gitignore
+# Node
+node_modules
+.next
+out
+
+# Env
+.env*
+
+# OS
+.DS_Store
+```
+
+## 2. .nvmrc
+
+```txt
+22
+```
+
+## 3. README.md
+
+````md
+# pjt014 — GBP 運用代行システム（MVP）
+
+Stack: Next.js 15 / React 18 / TypeScript 5 / Tailwind / Supabase (PG15, Auth, RLS) / pg-boss / googleapis
+
+## Quick Start
+
+```bash
+# 1) Clone
+gh repo clone rx-tomo/pjt014
+cd pjt014
+
+# 2) Node
+corepack enable
+env | grep -q NVM_DIR || nvm use 22 || true
+
+# 3) Install
+npm i
+
+# 4) Dev (FE)
+cp .env.example .env.local
+npm run dev
+
+# 5) DB (local; optional)
+npm run supabase:start
+npm run db:reset
+
+# 6) Worker (別端末/Pane)
+npm run worker:dev
+````
+
+## Env
+
+* `.env.local` を Next.js 用に使用
+* `.env` は worker 用（同値でも可）
+
+## Deploy
+
+* FE: Vercel
+* DB: Supabase (PG15)
+* Worker: Cloud Run or Supabase Edge Functions（将来切替可）
+
+````
+
+## 4. package.json
+```json
+{
+  "name": "pjt014",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "worker:dev": "tsx watch worker/gbp-worker.ts",
+    "supabase:start": "supabase start",
+    "db:reset": "supabase db reset --db-url ${SUPABASE_DB_URL:-postgresql://postgres:postgres@localhost:54322/postgres}"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.50.0",
+    "google-auth-library": "^9.14.1",
+    "googleapis": "^144.0.0",
+    "next": "^15.0.0",
+    "pg": "^8.12.0",
+    "pg-boss": "^9.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.7",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4"
+  }
+}
+````
+
+## 5. tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "allowJs": false,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "incremental": true,
+    "paths": {},
+    "types": ["node"]
+  },
+  "include": ["app", "lib", "worker", "next-env.d.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+## 6. next.config.mjs
+
+```js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    typedRoutes: true
+  }
+};
+export default nextConfig;
+```
+
+## 7. postcss.config.mjs
+
+```js
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {}
+  }
+};
+```
+
+## 8. tailwind.config.ts
+
+```ts
+import type { Config } from 'tailwindcss';
+
+export default {
+  content: [
+    './app/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}'
+  ],
+  theme: {
+    extend: {}
+  },
+  plugins: []
+} satisfies Config;
+```
+
+## 9. styles/globals.css
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+```
+
+## 10. app/layout.tsx
+
+```tsx
+import './globals.css';
+import type { ReactNode } from 'react';
+
+export const metadata = {
+  title: 'GBP Ops — pjt014',
+  description: 'Google Business Profile ops system'
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="ja">
+      <body className="min-h-screen bg-white text-gray-900">
+        <div className="max-w-6xl mx-auto p-6">{children}</div>
+      </body>
+    </html>
+  );
+}
+```
+
+## 11. app/page.tsx
+
+```tsx
+export default function Page() {
+  return (
+    <main className="space-y-4">
+      <h1 className="text-2xl font-semibold">GBP 運用代行システム（MVP）</h1>
+      <p>左上の <code>/api/gbp/oauth</code> から Google 連携の動作確認ができます。</p>
+      <a className="underline" href="/api/gbp/oauth">Google に接続する</a>
+    </main>
+  );
+}
+```
+
+## 12. app/api/gbp/oauth/route.ts
+
+```ts
+import { NextResponse } from 'next/server';
+import { oauth2Client } from '@/lib/google';
+
+export async function GET() {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: [
+      'openid',
+      'email',
+      'profile',
+      'https://www.googleapis.com/auth/business.manage'
+    ],
+    prompt: 'consent'
+  });
+  return NextResponse.redirect(url);
+}
+```
+
+## 13. app/api/gbp/callback/route.ts
+
+```ts
+import { NextRequest, NextResponse } from 'next/server';
+import { oauth2Client } from '@/lib/google';
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const code = searchParams.get('code');
+  if (!code) return NextResponse.json({ error: 'missing code' }, { status: 400 });
+
+  const { tokens } = await oauth2Client.getToken(code);
+  // NOTE: 実運用では KMS 等で暗号化保管し、ユーザ/テナントにひも付けます。
+  return NextResponse.json({ ok: true, tokens });
+}
+```
+
+## 14. lib/google.ts
+
+```ts
+import { OAuth2Client } from 'google-auth-library';
+import { google } from 'googleapis';
+
+export const oauth2Client = new OAuth2Client({
+  clientId: process.env.GOOGLE_OAUTH_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
+  redirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI!
+});
+
+export function gbpClient(accessToken: string) {
+  const auth = new OAuth2Client();
+  auth.setCredentials({ access_token: accessToken });
+  return google.mybusinessbusinessinformation({ version: 'v1', auth });
+}
+```
+
+## 15. lib/supabase.ts
+
+```ts
+import { createClient } from '@supabase/supabase-js';
+
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+```
+
+## 16. supabase/migrations/0001\_init.sql（抜粋）
+
+```sql
+-- テナント/組織/ロケーション/会員/ロール
+create table if not exists tenants (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists organizations (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references tenants(id) on delete cascade,
+  name text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists locations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  title text not null,
+  gbp_location_id text,
+  place_id text,
+  phone text,
+  address jsonb,
+  categories text[],
+  opening_hours jsonb,
+  labels text[],
+  reservation_url text,
+  meta jsonb,
+  updated_at timestamptz default now()
+);
+
+create table if not exists users (
+  id uuid primary key,
+  email text,
+  created_at timestamptz default now()
+);
+
+create table if not exists roles (
+  key text primary key -- admin/operator/agency/clinic
+);
+
+create table if not exists memberships (
+  user_id uuid references users(id) on delete cascade,
+  organization_id uuid references organizations(id) on delete cascade,
+  role_key text references roles(key),
+  primary key (user_id, organization_id)
+);
+
+create table if not exists change_requests (
+  id uuid primary key default gen_random_uuid(),
+  location_id uuid not null references locations(id) on delete cascade,
+  before jsonb,
+  after jsonb,
+  update_mask text[],
+  status text default 'pending',
+  created_by uuid,
+  created_at timestamptz default now()
+);
+
+create table if not exists batches (
+  id uuid primary key default gen_random_uuid(),
+  name text,
+  created_by uuid,
+  status text default 'queued',
+  created_at timestamptz default now()
+);
+
+create table if not exists sync_runs (
+  id uuid primary key default gen_random_uuid(),
+  batch_id uuid references batches(id) on delete set null,
+  location_id uuid references locations(id) on delete set null,
+  update_mask text[],
+  request jsonb,
+  response jsonb,
+  status_code int,
+  error text,
+  created_at timestamptz default now()
+);
+
+-- RLS（雛形）
+alter table tenants enable row level security;
+alter table organizations enable row level security;
+alter table locations enable row level security;
+
+-- TODO: auth.uid() と memberships を用いたテナント境界の実装
+```
+
+## 17. worker/gbp-worker.ts（最小動作）
+
+```ts
+import PgBoss from 'pg-boss';
+import { OAuth2Client } from 'google-auth-library';
+import { google } from 'googleapis';
+import pg from 'pg';
+
+const DATABASE_URL = process.env.SUPABASE_DB_URL || 'postgres://postgres:postgres@localhost:54322/postgres';
+const QPM = 300; // 全体
+const PER_LOCATION_PER_MIN = 10; // 各ロケーション
+
+const boss = new PgBoss(DATABASE_URL);
+
+async function main() {
+  await boss.start();
+  await boss.work('gbp.patch', { teamSize: 5 }, async job => {
+    const { accessToken, locationName, updateMask, body } = job.data as {
+      accessToken: string;
+      locationName: string; // accounts/{accountId}/locations/{locationId}
+      updateMask: string;
+      body: Record<string, unknown>;
+    };
+
+    const auth = new OAuth2Client();
+    auth.setCredentials({ access_token: accessToken });
+    const info = google.mybusinessbusinessinformation({ version: 'v1', auth });
+
+    // レート制御は簡易（本番はトークンバケット/Redis等に移行推奨）
+    await new Promise(r => setTimeout(r, Math.ceil(60000 / QPM)));
+
+    const res = await info.locations.patch({
+      name: locationName,
+      updateMask,
+      requestBody: body
+    });
+
+    console.log('patched', res.status, locationName, updateMask);
+  });
+}
+
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+```
+
+---
+
+## 18. .env.example
+
+```env
+# Next/Supabase
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=anon_dev_key
+SUPABASE_DB_URL=postgresql://postgres:postgres@localhost:54322/postgres
+
+# Google OAuth
+GOOGLE_OAUTH_CLIENT_ID=your_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/api/gbp/callback
+```
+
+---
+
+## 19. 初回コミット手順
+
+```bash
+gh repo clone rx-tomo/pjt014
+cd pjt014
+# 上記ファイルを配置
+
+git checkout -b init/mvp-scaffold
+git add .
+git commit -m "feat: bootstrap Next15 + Supabase + GBP scaffolding"
+git push -u origin init/mvp-scaffold
+
+# PR 作成
+gh pr create --fill --title "MVP scaffolding" --body "Next15/Supabase/GBP 初期セット"
+```
+
+---
+
+## 20. 次の一手（推奨）
+
+* [ ] Supabase で `0001_init.sql` を適用（`npm run supabase:start && npm run db:reset`）
+* [ ] Google Cloud で OAuth クライアントを作成し、リダイレクト URI を設定
+* [ ] `/api/gbp/oauth` → 認可 → `/api/gbp/callback` で tokens が返ることを確認
+* [ ] `worker/gbp-worker.ts` にキュージョブを投入する実装を追加（管理画面から）
+* [ ] RLS ポリシー・監査イベント・UI（一覧/承認/バッチ）を段階追加

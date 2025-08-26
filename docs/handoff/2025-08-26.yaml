@@ -1,0 +1,19 @@
+session: "2025-08-26/pm-1"
+who: "agent"
+milestone: "OAuth & Tokens"
+issues: [10, 11, 12]
+branch: "main"
+env: { port: 3014, node: 22 }
+changes:
+  - add: app/oauth/status/page.tsx
+  - update: app/api/jobs/gbp-patch/route.ts
+  - update: package.json
+  - docs: docs/gcp-oauth-setup.md
+  - update: AGENTS.md
+status: "done"
+next:
+  - setup GCP OAuth client and test callback
+  - link tokens to user/tenant; add encryption at rest
+risks:
+  - refresh tokens expire quickly in test mode
+notes: "初期スキャフォールドとGitHub運用枠組みを整備。ポートを3014へ統一。"
