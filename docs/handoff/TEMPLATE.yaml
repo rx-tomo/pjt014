@@ -1,0 +1,46 @@
+session: "YYYY-MM-DD/slot"
+who: "agent|owner"
+milestone: "NN. Name"
+issues: []
+branch: "main"
+env: { port: 3014, node: 22 }
+
+refs:
+  repo: "https://github.com/<owner>/<repo>"
+  issues_board: "https://github.com/<owner>/<repo>/issues"
+  milestones: "https://github.com/<owner>/<repo>/milestones"
+  docs:
+    gcp_oauth: "docs/gcp-oauth-setup.md"
+    agents: "AGENTS.md"
+  external:
+    nextjs: "https://nextjs.org/docs"
+    supabase_cli: "https://supabase.com/docs/guides/cli"
+    google_oauth: "https://console.cloud.google.com/apis/credentials"
+    pg_boss: "https://github.com/timgit/pg-boss"
+urls:
+  home: "http://localhost:3014/"
+  oauth_status: "http://localhost:3014/oauth/status"
+  oauth_start: "http://localhost:3014/api/gbp/oauth"
+  jobs_ui: "http://localhost:3014/jobs"
+
+commands:
+  setup: ["corepack enable", "nvm use 22", "npm i"]
+  dev: ["make dev"]
+  db_start: ["make supabase-start"]
+  db_reset: ["make db-reset"]
+  worker: ["npm run worker", "npm run worker:refresh"]
+
+changes:
+  - add: path/or description
+  - update: path/or description
+
+verify:
+  - "oauth status shows green"
+  - "callback returns { ok: true, persisted: true }"
+
+status: "running|blocked|done"
+next:
+  - "short actionable next step"
+risks:
+  - "known risk or caveat"
+notes: "short note if any"

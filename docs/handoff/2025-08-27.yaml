@@ -4,6 +4,29 @@ milestone: "02. OAuth & Tokens"
 issues: [11, 12]
 branch: "main"
 env: { port: 3014, node: 22 }
+refs:
+  repo: "https://github.com/rx-tomo/pjt014"
+  issues_board: "https://github.com/rx-tomo/pjt014/issues"
+  milestones: "https://github.com/rx-tomo/pjt014/milestones"
+  docs:
+    gcp_oauth: "docs/gcp-oauth-setup.md"
+    agents: "AGENTS.md"
+  external:
+    nextjs: "https://nextjs.org/docs"
+    supabase_cli: "https://supabase.com/docs/guides/cli"
+    google_oauth: "https://console.cloud.google.com/apis/credentials"
+    pg_boss: "https://github.com/timgit/pg-boss"
+urls:
+  home: "http://localhost:3014/"
+  oauth_status: "http://localhost:3014/oauth/status"
+  oauth_start: "http://localhost:3014/api/gbp/oauth"
+  jobs_ui: "http://localhost:3014/jobs"
+commands:
+  setup: ["corepack enable", "nvm use 22", "npm i"]
+  dev: ["make dev"]
+  db_start: ["make supabase-start"]
+  db_reset: ["make db-reset"]
+  worker: ["npm run worker", "npm run worker:refresh"]
 changes:
   - add: lib/crypto.ts
   - add: supabase/migrations/0003_tokens_refresh.sql
@@ -16,9 +39,11 @@ changes:
   - docs: README.md (RLS & Audit), AGENTS.md note
 status: "done"
 next:
-  - run `make db-reset` and verify callback persists with encrypted refresh_token
-  - add basic monitoring/logging for token refresh worker
-  - verify RLS using supabase-js session (manual test)
+  - owner: install Supabase CLI, `make supabase-start` then `make db-reset`
+  - owner: set `.env.local` (SUPABASE_DB_URL, GOOGLE_OAUTH_*, TOKEN_ENCRYPTION_KEY)
+  - owner: `make dev` → test `/oauth/status` and `/api/gbp/oauth`
+  - agent: add monitoring/logging for token refresh worker
+  - agent: verify RLS via supabase-js authenticated session
 risks:
   - oauth2Client.refreshAccessToken API differences across versions
 notes: "refresh_token の暗号化と自動リフレッシュ土台を追加。"

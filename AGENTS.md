@@ -49,25 +49,53 @@ If Make is unavailable, provide equivalents in `./scripts/` (e.g., `./scripts/te
 - Bootstrap: `make gh-bootstrap`（ラベル/マイルストーン作成）→ `make gh-issues`（代表Issue作成）。`gh` 認証とネットワークが必要。
 
 ## Handoff & Daily Logs (YAML)
-以下のYAMLでセッションごとの進捗を最短記述。`docs/handoff/YYYY-MM-DD.yaml` に追記（1日1ファイル）。終了時に関連Issueへ要約コメントを残す。
+以下のYAMLでセッションごとの進捗を記録します。`docs/handoff/YYYY-MM-DD.yaml` に作成（1日1ファイル）。終了時に関連Issueへ要約コメントを残す。
 
 ```yaml
-session: "2025-08-26/pm-1"   # 日付/任意の区分
-who: "agent"                # 担当
-milestone: "OAuth & Tokens"
-issues: [10, 11, 12]         # 関連Issue番号
-branch: "main"              # 作業ブランチ
+session: "YYYY-MM-DD/slot"     # 例: 2025-08-27/am-1
+who: "agent|owner"             # 担当者
+milestone: "02. OAuth & Tokens" # 対応中マイルストーン名
+issues: [11, 12]                # 関連Issue番号
+branch: "main"                 # 作業ブランチ
 env: { port: 3014, node: 22 }
+
+refs:
+  repo: "https://github.com/<owner>/<repo>"
+  issues_board: "https://github.com/<owner>/<repo>/issues"
+  milestones: "https://github.com/<owner>/<repo>/milestones"
+  docs:
+    gcp_oauth: "docs/gcp-oauth-setup.md"
+    agents: "AGENTS.md"
+  external:
+    nextjs: "https://nextjs.org/docs"
+    supabase_cli: "https://supabase.com/docs/guides/cli"
+    google_oauth: "https://console.cloud.google.com/apis/credentials"
+    pg_boss: "https://github.com/timgit/pg-boss"
+urls:
+  home: "http://localhost:3014/"
+  oauth_status: "http://localhost:3014/oauth/status"
+  oauth_start: "http://localhost:3014/api/gbp/oauth"
+  jobs_ui: "http://localhost:3014/jobs"
+
+commands:
+  setup: ["corepack enable", "nvm use 22", "npm i"]
+  dev: ["make dev"]
+  db_start: ["make supabase-start"]
+  db_reset: ["make db-reset"]
+  worker: ["npm run worker", "npm run worker:refresh"]
+
 changes:
-  - add: app/oauth/status/page.tsx
-  - update: app/api/jobs/gbp-patch/route.ts  # Zod
-  - update: package.json                     # port=3014
-  - docs: docs/gcp-oauth-setup.md
+  - add: path/or description
+  - update: path/or description
+
+verify:
+  - "oauth status shows green"
+  - "callback returns { ok: true, persisted: true }"
+
 status: "running|blocked|done"
 next:
-  - setup GCP OAuth client and test callback
-  - decide secure token storage approach
+  - "short actionable next step"
 risks:
-  - short-lived refresh tokens in test mode
+  - "known risk or caveat"
 notes: "短い補足があれば記載"
 ```
