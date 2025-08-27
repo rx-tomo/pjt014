@@ -117,47 +117,75 @@ export async function handle_oauth_callback(_req, res, query) {
     const audience = process.env.GOOGLE_CLIENT_ID || '';
     const payload = await verify_google_id_token(tokens.id_token, { audience, nonce: savedNonce || undefined });
     const email = payload.email || null;
-    // 永続化（Supabaseが設定されていれば保存）
+    // 永続化（Supabaseが設定されていれば保存）: 優先はsecureテーブル、失敗時にJSONへフォールバック
     let persisted = false;
     try {
-      const url = process.env.SUPABASE_URL;
+      const apiBase = process.env.SUPABASE_URL;
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (url && serviceKey) {
-        // 現行スキーマ: oauth_tokens(provider text not null, tokens jsonb not null, ...)
+      if (apiBase && serviceKey) {
+        const base = apiBase.replace(/\/$/, '');
+        const appSecret = process.env.APP_SECRET || 'dev_secret';
         const expiresAtIso = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null;
-        const payload = [{
-          provider: 'google',
-          tokens: {
+        // secure テーブル: 暗号化した文字列をtextカラムに保存
+        try {
+          const payloadSecure = [{
+            provider: 'google',
             email,
-            id_token: tokens.id_token || null,
-            access_token: tokens.access_token || null,
-            refresh_token: tokens.refresh_token || null,
-            expires_at: expiresAtIso
-          }
-        }];
-        const r = await fetch(`${url.replace(/\/$/, '')}/rest/v1/oauth_tokens`, {
-          method: 'POST',
-          headers: {
-            apikey: serviceKey,
-            Authorization: `Bearer ${serviceKey}`,
-            'content-type': 'application/json',
-            Prefer: 'return=representation'
-          },
-          body: JSON.stringify(payload)
-        });
-        if (!r.ok) {
-          const txt = await r.text();
-          console.error('[supabase] persist failed:', r.status, txt);
+            id_token_enc: tokens.id_token ? await aes_gcm_encrypt(tokens.id_token, appSecret) : null,
+            access_token_enc: tokens.access_token ? await aes_gcm_encrypt(tokens.access_token, appSecret) : null,
+            refresh_token_enc: tokens.refresh_token ? await aes_gcm_encrypt(tokens.refresh_token, appSecret) : null,
+            expires_at: expiresAtIso,
+          }];
+          const r1 = await fetch(`${base}/rest/v1/oauth_tokens_secure`, {
+            method: 'POST',
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+              'content-type': 'application/json',
+              Prefer: 'return=representation',
+            },
+            body: JSON.stringify(payloadSecure),
+          });
+          if (r1.ok) persisted = true; else console.error('[supabase] secure persist failed:', r1.status, await r1.text());
+        } catch (e) {
+          console.error('[supabase] secure persist error:', e);
         }
-        persisted = r.ok;
+        // フォールバック: JSONスキーマ
+        if (!persisted) {
+          try {
+            const payload = [{
+              provider: 'google',
+              tokens: {
+                email,
+                id_token: tokens.id_token || null,
+                access_token: tokens.access_token || null,
+                refresh_token: tokens.refresh_token || null,
+                expires_at: expiresAtIso,
+              },
+            }];
+            const r2 = await fetch(`${base}/rest/v1/oauth_tokens`, {
+              method: 'POST',
+              headers: {
+                apikey: serviceKey,
+                Authorization: `Bearer ${serviceKey}`,
+                'content-type': 'application/json',
+                Prefer: 'return=representation',
+              },
+              body: JSON.stringify(payload),
+            });
+            if (r2.ok) persisted = true; else console.error('[supabase] json persist failed:', r2.status, await r2.text());
+          } catch (e) {
+            console.error('[supabase] json persist error:', e);
+          }
+        }
       }
     } catch (e) {
-      console.error('[supabase] persist error:', e);
-      // 永続化失敗は致命ではないため握りつぶし（ログは本番で送る）
+      console.error('[supabase] persist outer error:', e);
     }
 
     // セッション作成（開発用：メモリ保持）
-    const sid = create_session({ provider: 'google', user: { email, sub: payload.sub }, tokens, oidc: { verified: true } }, 3600);
+    const tokens_obtained_at = Date.now();
+    const sid = create_session({ provider: 'google', user: { email, sub: payload.sub }, tokens, tokens_obtained_at, oidc: { verified: true } }, 3600);
     set_cookie(res, 'sid', sign_value(sid, secret), { httpOnly: true, maxAge: 3600, sameSite: 'Lax' });
     // UX: ダッシュボードへ戻す
     return redirect(res, `/?ok=1&persisted=${persisted ? '1' : '0'}`);
@@ -209,32 +237,49 @@ export async function handle_oauth_refresh(req, res) {
     const tokens = await resp.json();
     // セッションを更新
     session.tokens = { ...session.tokens, ...tokens };
+    session.tokens_obtained_at = Date.now();
     // Supabaseにも新しいトークンスナップショットを追加保存（同じ形式）
     try {
       const url = process.env.SUPABASE_URL;
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       if (url && serviceKey) {
+        const base = url.replace(/\/$/, '');
         const expiresAtIso = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null;
-        const payload = [{
-          provider: 'google',
-          tokens: {
+        const appSecret = process.env.APP_SECRET || 'dev_secret';
+        // secure first
+        try {
+          const payloadSecure = [{
+            provider: 'google',
             email: session.user?.email || null,
-            id_token: tokens.id_token || session.tokens?.id_token || null,
-            access_token: tokens.access_token || null,
-            refresh_token: session.tokens?.refresh_token || null,
+            id_token_enc: (tokens.id_token || session.tokens?.id_token) ? await aes_gcm_encrypt(tokens.id_token || session.tokens?.id_token, appSecret) : null,
+            access_token_enc: tokens.access_token ? await aes_gcm_encrypt(tokens.access_token, appSecret) : null,
+            refresh_token_enc: (session.tokens?.refresh_token) ? await aes_gcm_encrypt(session.tokens.refresh_token, appSecret) : null,
             expires_at: expiresAtIso,
-          },
-        }];
-        await fetch(`${url.replace(/\/$/, '')}/rest/v1/oauth_tokens`, {
-          method: 'POST',
-          headers: {
-            apikey: serviceKey,
-            Authorization: `Bearer ${serviceKey}`,
-            'content-type': 'application/json',
-            Prefer: 'return=representation',
-          },
-          body: JSON.stringify(payload),
-        });
+          }];
+          await fetch(`${base}/rest/v1/oauth_tokens_secure`, {
+            method: 'POST',
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'content-type': 'application/json', Prefer: 'return=representation' },
+            body: JSON.stringify(payloadSecure),
+          });
+        } catch (_) {}
+        // json snapshot as well (optional)
+        try {
+          const payloadJson = [{
+            provider: 'google',
+            tokens: {
+              email: session.user?.email || null,
+              id_token: tokens.id_token || session.tokens?.id_token || null,
+              access_token: tokens.access_token || null,
+              refresh_token: session.tokens?.refresh_token || null,
+              expires_at: expiresAtIso,
+            },
+          }];
+          await fetch(`${base}/rest/v1/oauth_tokens`, {
+            method: 'POST',
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'content-type': 'application/json', Prefer: 'return=representation' },
+            body: JSON.stringify(payloadJson),
+          });
+        } catch (_) {}
       }
     } catch {}
     return write_json(res, 200, { ok: true, refreshed: true });

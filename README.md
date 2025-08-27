@@ -31,9 +31,10 @@
 
 ## サーバエンドポイント
 
-- `GET /` プロジェクトの情報
+- `GET /` ダッシュボードHTML（認証/トークン/保存状況の可視化、Refreshボタン）
 - `GET /oauth/status` OAuthのステータス（スタブ）
 - `GET /api/gbp/oauth` OAuth開始（スタブ応答）
+- `GET /api/dashboard` ダッシュボード用の集約JSON（セッション・Supabaseの最新保存など）
 - `GET /jobs` ジョブUIプレースホルダー
 
 ## テスト
