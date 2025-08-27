@@ -1,101 +1,29 @@
-# Language
-ユーザとの対話は日本語で行うこと
+# エージェント運用ガイド（GitHub/PR/Issue）
 
-# Repository Guidelines
+## 認証
+- `gh auth status` で確認。`GH_TOKEN` が設定されている場合はそのトークンが使用される（通知メッセージは問題ではない）。
+- キーチェーン保存に切り替える場合は `unset GH_TOKEN` → `gh auth login`。
 
-## Project Structure & Module Organization
-- Source lives in `src/`; public APIs grouped by domain. Example: `src/auth/`, `src/core/`.
-- Tests in `tests/` mirroring `src/` paths. Example: `tests/auth/test_login.*`.
-- Executable scripts in `scripts/` (bash or language-specific). Keep them idempotent.
-- Static assets in `assets/`; configuration in `config/` or dotfiles at repo root.
-- Current files: `init.txt` and VCS data in `.git/`. Create the folders above as needed.
+## PR/Issue 本文の改行崩れ対策
+- GH CLI は `--body` に渡した `\n` をそのまま表示する場合がある。
+- 原則、本文はファイルで渡す。
+  - 例: `gh pr create --base main --head <branch> --title "[Fix] ..." --body-file .github/pull_request_template.md`
+  - 例: `gh issue comment <num> --body-file .github/comments/progress_example.md`
 
-## Build, Test, and Development Commands
-- `make setup`: install tools/dependencies for local development.
-- `make build`: compile or bundle the project (outputs to `dist/` or similar).
-- `make test`: run unit/integration tests with coverage.
-- `make lint`: run linters/formatters and fail on errors.
-- `make dev`: start a local dev server on port `3014`.
-If Make is unavailable, provide equivalents in `./scripts/` (e.g., `./scripts/test.sh`).
+## マージ方針
+- デフォルトは Squash Merge を推奨。
+  - `gh pr merge --squash --auto <PR番号>`（ブランチ保護がある場合は承認後自動）
+- 競合がある場合は `main` を取り込んで解消。
+  - 迅速対応が必要なときは `-X ours`（feature優先）可。慎重ケースは手動解決。
 
-## Coding Style & Naming Conventions
-- Indentation: 2 spaces; max line length: 100. Prefer explicit names over abbreviations.
-- Files: `lower_snake_case.ext` for code, `kebab-case` for directories, `UPPER_SNAKE_CASE` for constants.
-- Functions/methods: `lower_snake_case`; classes/types: `PascalCase`.
-- Use a formatter and linter appropriate to the language; wire them to `make lint`.
+## ブランチ/デプロイ
+- Production Branch は `main`。マージ後に Vercel 自動デプロイ（該当プロジェクトの場合）。
+- デプロイ後の簡易ヘルスチェック（例）
+  - `/api/system-stats` → 200 + 件数返却
+  - `/api/health-inspections` → 基本検索で非0
+  - `/api/responses` → 非0
 
-## Testing Guidelines
-- Place unit tests next to corresponding modules in `tests/`, mirroring paths.
-- Test names: `test_<module>.<ext>` or `<name>.spec.<ext>`.
-- Aim for ≥80% line/branch coverage. Run with `make test` or `./scripts/test.sh`.
-- Include at least one integration test per domain (e.g., `tests/auth/`).
+## 大容量ファイル
+- `backup/**/*.sql`, `backup/**/*.dump` は .gitignore で除外。
+- 誤コミット時は現行tipから削除（履歴の完全削除は BFG/filter-repo を検討）。
 
-## Commit & Pull Request Guidelines
-- Commits: use Conventional Commits, e.g., `feat(auth): add token refresh` or `fix(core): handle nil input`.
-- Small, focused commits; include rationale in the body when non-obvious.
-- PRs: clear description, link issues (`Closes #123`), include screenshots or logs when UI/CLI behavior changes.
-- CI passing, `make lint` and `make test` green before review.
-
-## Security & Configuration
-- Never commit secrets. Use env files (`.env`) locally and add `.env.example` for required keys.
-- Prefer parameterized config in `config/` and document defaults in README.
-- RLS & Audit: Policies live in `supabase/migrations/0004_rls_audit.sql`. Audit records write operations to `audit_log`. When validating RLS, prefer `@supabase/supabase-js` with user JWT over direct `pg` access.
-
-## Workflow & Issue Management
-- Milestones: phase-based and ordered (`01. MVP`, `02. OAuth & Tokens`, `03. Supabase Schema`, `04. Worker & Jobs`, `05. Admin UI`, `06. Security & Compliance`). Use `make gh-milestones-order` to (re)apply numbering.
-- Issues: use templates under `.github/ISSUE_TEMPLATE/`（1課題=1Issue）。設計リンク/スクショを添付。
-- Labels: `type:feat|bug|chore`, `area:api|ui|worker`, `priority:p0|p1|p2`。
-- Flow: Issue作成 → PR紐付け（ドラフト可）→ スモールコミット → スクショ/ログ追記 → マージ時に `Closes #<id>` で自動クローズし、結果コメントを残す。
-- Bootstrap: `make gh-bootstrap`（ラベル/マイルストーン作成）→ `make gh-issues`（代表Issue作成）。`gh` 認証とネットワークが必要。
-
-## Handoff & Daily Logs (YAML)
-以下のYAMLでセッションごとの進捗を記録します。`docs/handoff/YYYY-MM-DD.yaml` に作成（1日1ファイル）。終了時に関連Issueへ要約コメントを残す。
-
-```yaml
-session: "YYYY-MM-DD/slot"     # 例: 2025-08-27/am-1
-who: "agent|owner"             # 担当者
-milestone: "02. OAuth & Tokens" # 対応中マイルストーン名
-issues: [11, 12]                # 関連Issue番号
-branch: "main"                 # 作業ブランチ
-env: { port: 3014, node: 22 }
-
-refs:
-  repo: "https://github.com/<owner>/<repo>"
-  issues_board: "https://github.com/<owner>/<repo>/issues"
-  milestones: "https://github.com/<owner>/<repo>/milestones"
-  docs:
-    gcp_oauth: "docs/gcp-oauth-setup.md"
-    agents: "AGENTS.md"
-  external:
-    nextjs: "https://nextjs.org/docs"
-    supabase_cli: "https://supabase.com/docs/guides/cli"
-    google_oauth: "https://console.cloud.google.com/apis/credentials"
-    pg_boss: "https://github.com/timgit/pg-boss"
-urls:
-  home: "http://localhost:3014/"
-  oauth_status: "http://localhost:3014/oauth/status"
-  oauth_start: "http://localhost:3014/api/gbp/oauth"
-  jobs_ui: "http://localhost:3014/jobs"
-
-commands:
-  setup: ["corepack enable", "nvm use 22", "npm i"]
-  dev: ["make dev"]
-  db_start: ["make supabase-start"]
-  db_reset: ["make db-reset"]
-  worker: ["npm run worker", "npm run worker:refresh"]
-
-changes:
-  - add: path/or description
-  - update: path/or description
-
-verify:
-  - "oauth status shows green"
-  - "callback returns { ok: true, persisted: true }"
-
-status: "running|blocked|done"
-next:
-  - "short actionable next step"
-risks:
-  - "known risk or caveat"
-notes: "短い補足があれば記載"
-```

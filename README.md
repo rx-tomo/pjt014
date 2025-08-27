@@ -11,6 +11,12 @@
 - `make build`: dist 準備（現状はコピーのみ）
 - `make gh-bootstrap` / `make gh-issues` / `make gh-milestones-order`: GitHub運用補助（要 `gh` とネットワーク）
 
+### GitHubコメント運用（改行崩れ対策）
+- 原則、本文はファイルで渡します（`--body-file`）。
+- 例: `scripts/gh_comment.sh issue <番号> .github/comments/progress_rls_audit.md`
+- PRコメント: `scripts/gh_comment.sh pr <番号> <本文ファイル>`
+- Issueをコメント付きでクローズ: `scripts/gh_comment.sh issue-close <番号> <本文ファイル>`（コメント投稿→クローズの順）
+
 ## 環境変数
 
 `.env.example` を `.env` にコピーし、必要な値を設定してください。秘密情報はコミットしないでください。
@@ -21,6 +27,7 @@
 - `tests/` テストコード（`src/` をミラー）
 - `scripts/` 各種スクリプト（冪等に）
 - `assets/`, `config/` 必要に応じて追加利用
+- `.github/comments/` GitHubコメント用の本文テンプレ群（改行崩れ防止）
 
 ## サーバエンドポイント
 
@@ -32,4 +39,3 @@
 ## テスト
 
 Node 22 の `node --test` を使用。`make test` で実行できます。
-
