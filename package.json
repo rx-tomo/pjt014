@@ -1,36 +1,23 @@
 {
   "name": "pjt014",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "next dev -p 3014",
-    "build": "next build",
-    "start": "next start -p 3014",
-    "lint": "next lint",
-    "worker:dev": "tsx watch worker/gbp-worker.ts",
-    "worker:refresh": "tsx watch worker/token-refresher.ts",
-    "supabase:start": "supabase start",
-    "db:reset": "supabase db reset --db-url ${SUPABASE_DB_URL:-postgresql://postgres:postgres@localhost:54322/postgres}"
+  "engines": {
+    "node": ">=22"
   },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.50.0",
-    "google-auth-library": "^9.14.1",
-    "googleapis": "^144.0.0",
-    "next": "^15.0.0",
-    "pg": "^8.12.0",
-    "pg-boss": "^9.0.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "zod": "^3.23.8"
+  "scripts": {
+    "dev": "node src/core/server.js",
+    "test": "node --test --test-reporter=spec",
+    "lint": "eslint . --ext .js,.mjs,.cjs",
+    "format": "prettier --write .",
+    "worker": "node scripts/workers/example_worker.js",
+    "worker:refresh": "echo 'refreshing workers (placeholder)'"
   },
   "devDependencies": {
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.41",
-    "tailwindcss": "^3.4.7",
-    "tsx": "^4.19.1",
-    "typescript": "^5.5.4"
+    "eslint": "^9.10.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3"
   }
 }
+

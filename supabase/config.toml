@@ -1,0 +1,14 @@
+project_id = "pjt014"
+
+[api]
+port = 55421
+
+[db]
+port = 55422
+
+[studio]
+port = 55423
+
+[inbucket]
+smtp_port = 55424
+pop3_port = 55425

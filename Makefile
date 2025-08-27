@@ -1,39 +1,44 @@
-.PHONY: setup dev build start lint worker supabase-start db-reset
+.PHONY: setup build test lint dev format worker worker-refresh supabase-start db-reset gh-bootstrap gh-issues gh-milestones-order
+
+NODE := node
+NPM := npm
 
 setup:
-	corepack enable || true
-	@echo "Use Node 22 (nvm use 22)"
-	npm i
-
-dev:
-	npm run dev
+	@./scripts/setup.sh
 
 build:
-	npm run build
+	@./scripts/build.sh
 
-start:
-	npm run start
+test:
+	@./scripts/test.sh
 
 lint:
-	npm run lint || true
+	@./scripts/lint.sh
+
+format:
+	@./scripts/format.sh
+
+dev:
+	@./scripts/dev.sh
 
 worker:
-	npm run worker:dev
+	@./scripts/worker.sh
+
+worker-refresh:
+	@./scripts/worker_refresh.sh
 
 supabase-start:
-	npm run supabase:start
+	@./scripts/supabase_start.sh
 
 db-reset:
-	npm run db:reset
+	@./scripts/db_reset.sh
 
-.PHONY: gh-bootstrap
 gh-bootstrap:
-	./scripts/gh-bootstrap.sh $$(gh repo view --json nameWithOwner -q .nameWithOwner)
+	@./scripts/gh_bootstrap.sh
 
-.PHONY: gh-issues
 gh-issues:
-	./scripts/gh-create-issues.sh $$(gh repo view --json nameWithOwner -q .nameWithOwner)
+	@./scripts/gh_issues.sh
 
-.PHONY: gh-milestones-order
 gh-milestones-order:
-	./scripts/gh-rename-milestones.sh $$(gh repo view --json nameWithOwner -q .nameWithOwner)
+	@./scripts/gh_milestones_order.sh
+

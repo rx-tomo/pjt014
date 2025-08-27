@@ -1,13 +1,14 @@
 session: "2025-08-27/am-1"
 who: "agent"
 milestone: "02. OAuth & Tokens"
-issues: [11, 12]
+issues: []
 branch: "main"
 env: { port: 3014, node: 22 }
+
 refs:
-  repo: "https://github.com/rx-tomo/pjt014"
-  issues_board: "https://github.com/rx-tomo/pjt014/issues"
-  milestones: "https://github.com/rx-tomo/pjt014/milestones"
+  repo: "https://github.com/<owner>/<repo>"
+  issues_board: "https://github.com/<owner>/<repo>/issues"
+  milestones: "https://github.com/<owner>/<repo>/milestones"
   docs:
     gcp_oauth: "docs/gcp-oauth-setup.md"
     agents: "AGENTS.md"
@@ -21,29 +22,25 @@ urls:
   oauth_status: "http://localhost:3014/oauth/status"
   oauth_start: "http://localhost:3014/api/gbp/oauth"
   jobs_ui: "http://localhost:3014/jobs"
+
 commands:
   setup: ["corepack enable", "nvm use 22", "npm i"]
   dev: ["make dev"]
   db_start: ["make supabase-start"]
   db_reset: ["make db-reset"]
   worker: ["npm run worker", "npm run worker:refresh"]
+
 changes:
-  - add: lib/crypto.ts
-  - add: supabase/migrations/0003_tokens_refresh.sql
-  - update: app/api/gbp/callback/route.ts
-  - add: lib/token_refresh.ts
-  - add: worker/token-refresher.ts
-  - update: package.json scripts (worker:refresh)
-  - docs: README.md, .env.example, docs/gcp-oauth-setup.md
-  - add: supabase/migrations/0004_rls_audit.sql
-  - docs: README.md (RLS & Audit), AGENTS.md note
-status: "done"
+  - add: scaffolding for Node server, tests, scripts, Makefile, issue templates
+
+verify:
+  - "oauth status shows green"
+  - "callback returns { ok: true, persisted: true }"
+
+status: "running"
 next:
-  - owner: install Supabase CLI, `make supabase-start` then `make db-reset`
-  - owner: set `.env.local` (SUPABASE_DB_URL, GOOGLE_OAUTH_*, TOKEN_ENCRYPTION_KEY)
-  - owner: `make dev` → test `/oauth/status` and `/api/gbp/oauth`
-  - agent: add monitoring/logging for token refresh worker
-  - agent: verify RLS via supabase-js authenticated session
+  - "実OAuth(Google)のリダイレクトURL生成とコールバック処理を実装"
 risks:
-  - oauth2Client.refreshAccessToken API differences across versions
-notes: "refresh_token の暗号化と自動リフレッシュ土台を追加。"
+  - "ESLint/Prettierは依存インストールが必要（ネットワーク依存）"
+notes: "最小サーバは標準HTTPで実装。Node 22のnode --testで動作確認可能。"
+
