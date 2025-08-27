@@ -19,6 +19,7 @@
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3014/api/gbp/callback
+TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)
 ```
 
 ## 4) 動作確認
@@ -26,6 +27,7 @@ GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3014/api/gbp/callback
 - ブラウザ: `http://localhost:3014/oauth/status` で環境変数が緑表示であることを確認
 - `http://localhost:3014/api/gbp/oauth` にアクセス → 認可 → `/api/gbp/callback` に `{ ok: true, tokens }`
   - `SUPABASE_DB_URL` が設定されていれば `persisted: true`（DBへ保存）となります
+  - 以後の更新で `refresh_token` は暗号化保存されます（`TOKEN_ENCRYPTION_KEY` 必須）
 
 ## 注意（テストモードの制約）
 - テストユーザー最大100人

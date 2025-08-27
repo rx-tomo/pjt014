@@ -39,9 +39,10 @@ If Make is unavailable, provide equivalents in `./scripts/` (e.g., `./scripts/te
 ## Security & Configuration
 - Never commit secrets. Use env files (`.env`) locally and add `.env.example` for required keys.
 - Prefer parameterized config in `config/` and document defaults in README.
+- RLS & Audit: Policies live in `supabase/migrations/0004_rls_audit.sql`. Audit records write operations to `audit_log`. When validating RLS, prefer `@supabase/supabase-js` with user JWT over direct `pg` access.
 
 ## Workflow & Issue Management
-- Milestones: phase-based (`MVP`, `OAuth & Tokens`, `Supabase Schema`, `Worker & Jobs`, `Admin UI`, `Security & Compliance`).
+- Milestones: phase-based and ordered (`01. MVP`, `02. OAuth & Tokens`, `03. Supabase Schema`, `04. Worker & Jobs`, `05. Admin UI`, `06. Security & Compliance`). Use `make gh-milestones-order` to (re)apply numbering.
 - Issues: use templates under `.github/ISSUE_TEMPLATE/`（1課題=1Issue）。設計リンク/スクショを添付。
 - Labels: `type:feat|bug|chore`, `area:api|ui|worker`, `priority:p0|p1|p2`。
 - Flow: Issue作成 → PR紐付け（ドラフト可）→ スモールコミット → スクショ/ログ追記 → マージ時に `Closes #<id>` で自動クローズし、結果コメントを残す。

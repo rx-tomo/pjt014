@@ -10,6 +10,8 @@ changes:
   - update: package.json
   - docs: docs/gcp-oauth-setup.md
   - update: AGENTS.md
+  - review: PR #19 closed with feedback
+  - review: PR #20 closed with feedback
 status: "done"
 next:
   - setup GCP OAuth client and test callback

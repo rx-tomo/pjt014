@@ -33,3 +33,7 @@ gh-bootstrap:
 .PHONY: gh-issues
 gh-issues:
 	./scripts/gh-create-issues.sh $$(gh repo view --json nameWithOwner -q .nameWithOwner)
+
+.PHONY: gh-milestones-order
+gh-milestones-order:
+	./scripts/gh-rename-milestones.sh $$(gh repo view --json nameWithOwner -q .nameWithOwner)

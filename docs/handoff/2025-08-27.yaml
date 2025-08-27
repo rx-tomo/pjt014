@@ -1,0 +1,24 @@
+session: "2025-08-27/am-1"
+who: "agent"
+milestone: "02. OAuth & Tokens"
+issues: [11, 12]
+branch: "main"
+env: { port: 3014, node: 22 }
+changes:
+  - add: lib/crypto.ts
+  - add: supabase/migrations/0003_tokens_refresh.sql
+  - update: app/api/gbp/callback/route.ts
+  - add: lib/token_refresh.ts
+  - add: worker/token-refresher.ts
+  - update: package.json scripts (worker:refresh)
+  - docs: README.md, .env.example, docs/gcp-oauth-setup.md
+  - add: supabase/migrations/0004_rls_audit.sql
+  - docs: README.md (RLS & Audit), AGENTS.md note
+status: "done"
+next:
+  - run `make db-reset` and verify callback persists with encrypted refresh_token
+  - add basic monitoring/logging for token refresh worker
+  - verify RLS using supabase-js session (manual test)
+risks:
+  - oauth2Client.refreshAccessToken API differences across versions
+notes: "refresh_token の暗号化と自動リフレッシュ土台を追加。"

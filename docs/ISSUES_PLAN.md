@@ -2,13 +2,13 @@
 
 このドキュメントは GitHub の Issue/Milestone 運用の台本です。`gh` CLI が使える環境では `make gh-bootstrap && make gh-issues` を実行すると、ここに列挙の大枠が自動作成されます。
 
-## Milestones
-- MVP
-- OAuth & Tokens
-- Supabase Schema
-- Worker & Jobs
-- Admin UI
-- Security & Compliance
+## Milestones (Ordered)
+- 01. MVP
+- 02. OAuth & Tokens
+- 03. Supabase Schema
+- 04. Worker & Jobs
+- 05. Admin UI
+- 06. Security & Compliance
 
 ## Issues（概要）
 - MVP: Next.js/Tailwind/Supabase/Worker スキャフォールド（完了ベース）
@@ -23,4 +23,3 @@
 
 ## Close 時のコメント例
 > 実装・確認完了しました。ビルド/リンタ/ローカル検証OK。関連PR: #<PR番号>。必要に応じてフォローアップIssueを作成します。
-
