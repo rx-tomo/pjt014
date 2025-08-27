@@ -1,4 +1,4 @@
-.PHONY: setup dev build start lint worker supabase-start db-reset
+.PHONY: setup dev build start lint worker supabase-start db-reset test
 
 setup:
 	corepack enable || true
@@ -15,10 +15,13 @@ start:
 	npm run start
 
 lint:
-	npm run lint || true
+        npm run lint || true
 
 worker:
-	npm run worker:dev
+        npm run worker:dev
+
+test:
+        npm test || true
 
 supabase-start:
 	npm run supabase:start

@@ -8,8 +8,10 @@
     "start": "next start -p 3014",
     "lint": "next lint",
     "worker:dev": "tsx watch worker/gbp-worker.ts",
+    "worker:refresh": "tsx watch worker/token-refresher.ts",
     "supabase:start": "supabase start",
-    "db:reset": "supabase db reset --db-url ${SUPABASE_DB_URL:-postgresql://postgres:postgres@localhost:54322/postgres}"
+    "db:reset": "supabase db reset --db-url ${SUPABASE_DB_URL:-postgresql://postgres:postgres@localhost:54322/postgres}",
+    "test": "node --test --import tsx tests/**/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
