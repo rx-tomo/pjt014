@@ -43,7 +43,7 @@ function redirect(res, location) {
   res.end();
 }
 
-function build_google_auth_url({ state }) {
+function build_google_auth_url({ state, nonce }) {
   const client_id = process.env.GOOGLE_CLIENT_ID;
   const redirect_uri = process.env.GOOGLE_REDIRECT_URI;
   if (!client_id || !redirect_uri) return null;
@@ -57,6 +57,7 @@ function build_google_auth_url({ state }) {
     include_granted_scopes: 'true',
     state: state || ''
   });
+  if (nonce) params.set('nonce', nonce);
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
