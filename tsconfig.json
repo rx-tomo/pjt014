@@ -34,6 +34,8 @@
   "include": [
     "app",
     "lib",
+    "src",
+    "tests",
     "next-env.d.ts",
     "worker",
     ".next/types/**/*.ts"

@@ -6,10 +6,11 @@
     "dev": "next dev -p 3014",
     "build": "next build",
     "start": "next start -p 3014",
-    "lint": "next lint",
-    "worker:dev": "tsx watch worker/gbp-worker.ts",
-    "supabase:start": "supabase start",
-    "db:reset": "supabase db reset --db-url ${SUPABASE_DB_URL:-postgresql://postgres:postgres@localhost:54322/postgres}"
+    "lint": "next lint", 
+    "worker:dev": "tsx watch worker/gbp-worker.ts", 
+    "supabase:start": "supabase start", 
+    "db:reset": "supabase db reset --db-url ${SUPABASE_DB_URL:-postgresql://postgres:postgres@localhost:54322/postgres}",
+    "test": "tsx --test tests/api/gbp/callback.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

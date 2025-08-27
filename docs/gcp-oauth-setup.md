@@ -19,6 +19,7 @@
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3014/api/gbp/callback
+TOKEN_ENCRYPTION_KEY=openssl rand -base64 32 で生成
 ```
 
 ## 4) 動作確認

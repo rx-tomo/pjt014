@@ -29,14 +29,15 @@ npm run db:reset
 npm run worker:dev
 
 ## Notes (OAuth tokens persistence)
-- `/api/gbp/callback` は取得した tokens を `oauth_tokens` テーブルへ保存します（`supabase/migrations/0002_oauth_tokens.sql`）。
-- 開発用の簡易保存です。本番では KMS/Secrets 等で暗号化し、ユーザ/テナントに紐付けてください。
+- `/api/gbp/callback` は取得した tokens を暗号化し `oauth_tokens` テーブルへ保存します（`supabase/migrations/0003_encrypted_oauth_tokens.sql`）。
+- 暗号化には `TOKEN_ENCRYPTION_KEY`（Base64 32バイト）を使用します。
 ```
 
 ## Env
 
 - `.env.local` を Next.js 用に使用
 - `.env` は worker 用（同値でも可）
+- `TOKEN_ENCRYPTION_KEY` を Base64 32バイトで設定（`openssl rand -base64 32`）
 
 ## Deploy
 
