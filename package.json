@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node src/core/server.js",
+    "dev": "NODE_ENV=development DEV_RELOAD=1 nodemon --watch src --ext js,mjs,json --signal SIGTERM --exec \"node src/core/server.js\"",
     "test": "node --test --test-reporter=spec",
     "lint": "eslint . --ext .js,.mjs,.cjs",
     "format": "prettier --write .",
@@ -17,7 +17,7 @@
   "devDependencies": {
     "eslint": "^9.10.0",
     "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.3.3"
+    "prettier": "^3.3.3",
+    "nodemon": "^3.1.4"
   }
 }
-

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import fs from 'node:fs';
 import { parse, fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -31,6 +32,33 @@ function json(res, status, data) {
   function html(res, status, body) {
     res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' });
     res.end(body);
+  }
+
+  // Dev live-reload (SSE) support
+  const dev_clients = [];
+  const DEV_ENABLED = process.env.NODE_ENV !== 'production' && process.env.DEV_RELOAD !== '0';
+  let DEV_WATCHER_STARTED = false;
+
+  function dev_reload_script() {
+    if (!DEV_ENABLED) return '';
+    return `\n<script>\n(()=>{ try{ const es = new EventSource('/__dev/reload'); es.onmessage = (e)=>{ if(e.data==='reload'){ location.reload(); } }; }catch(e){} })();\n</script>\n`;
+  }
+
+  function dev_broadcast_reload() {
+    for (const res of dev_clients.slice()) {
+      try { res.write('data: reload\n\n'); } catch {}
+    }
+  }
+
+  function start_dev_watcher_once() {
+    if (!DEV_ENABLED || DEV_WATCHER_STARTED) return;
+    DEV_WATCHER_STARTED = true;
+    try {
+      const watchPath = path.resolve('src');
+      if (fs.existsSync(watchPath)) {
+        fs.watch(watchPath, { recursive: true }, () => dev_broadcast_reload());
+      }
+    } catch {}
   }
 
   // Simple top navigation to clarify who each screen is for
@@ -72,6 +100,23 @@ export function create_server() {
     }
 
     try {
+      // Dev SSE endpoint
+      if (DEV_ENABLED && method === 'GET' && pathname === '/__dev/reload') {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache',
+          connection: 'keep-alive',
+        });
+        res.write('retry: 1000\n\n');
+        dev_clients.push(res);
+        req.on('close', () => {
+          const i = dev_clients.indexOf(res);
+          if (i >= 0) dev_clients.splice(i, 1);
+        });
+        return; // keep open
+      }
+
+      start_dev_watcher_once();
       async function read_json() {
         return await new Promise((resolve, reject) => {
           const chunks = [];
@@ -166,7 +211,7 @@ export function create_server() {
     </script>
   </body>
   </html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname === '/oauth/status') {
@@ -288,11 +333,8 @@ export function create_server() {
       }
 
       if (method === 'GET' && pathname === '/jobs') {
-        return html(
-          res,
-          200,
-          `<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body>${header_nav()}<h1>Jobs UI (placeholder)</h1></body></html>`
-        );
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body>${header_nav()}<h1>Jobs UI (placeholder)</h1></body></html>`;
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname === '/locations') {
@@ -314,7 +356,7 @@ export function create_server() {
           });
         </script>
         </body></html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname.startsWith('/locations/')) {
@@ -335,7 +377,7 @@ export function create_server() {
         </dl>
         <p style="margin-top:16px"><a href="/owner/${loc.id}">変更依頼を出す（オーナーポータル）</a></p>
         </body></html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname === '/owner') {
@@ -351,7 +393,7 @@ export function create_server() {
           <p>編集したいロケーションを選択してください。</p>
           <ul>${li}</ul>
         </body></html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname.startsWith('/owner/')) {
@@ -429,7 +471,7 @@ export function create_server() {
             loadStatus(); loadRequests();
           </script>
         </body></html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname === '/review') {
@@ -443,7 +485,7 @@ export function create_server() {
           <p style="color:#555">対象: オペレーター/承認者。できること: 依頼のレビュー/承認/差戻し。</p>
           <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table>
         </body></html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname.startsWith('/review/')) {
@@ -485,7 +527,7 @@ export function create_server() {
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
           </script>
         </body></html>`;
-        return html(res, 200, page);
+        return html(res, 200, page + dev_reload_script());
       }
 
       json(res, 404, { ok: false, error: 'not_found' });

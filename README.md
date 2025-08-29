@@ -17,7 +17,7 @@
 ## 開発コマンド
 
 - `make setup`: 開発に必要なツール/依存をインストール（ローカルで `corepack` / `npm` 使用）
- - `make dev`: ローカル開発サーバを起動（ポート `3014`、Nodeの`--watch`で自動再起動）
+- `make dev`: ローカル開発サーバを起動（ポート `3014`、nodemonで自動再起動＋ブラウザ自動リロード）
 - `make test`: Node組み込みテストランナーで実行
 - `make lint`: ESLint + Prettier チェック
 - `make build`: dist 準備（現状はコピーのみ）
