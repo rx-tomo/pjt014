@@ -12,6 +12,8 @@ import { parse as parseUrl } from 'node:url';
 import { parse_cookies, verify_value } from './cookies.js';
 import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
+import { get_locations, get_location } from './locations_stub.js';
+import { create_change_request, list_change_requests } from './change_requests_store.js';
 
 const DEFAULT_PORT = Number(process.env.PORT || 3014);
 // localhostでも外部IFでも到達できるようデフォルトは0.0.0.0
@@ -58,6 +60,22 @@ export function create_server() {
     }
 
     try {
+      async function read_json() {
+        return await new Promise((resolve, reject) => {
+          const chunks = [];
+          req.on('data', (c) => chunks.push(c));
+          req.on('end', () => {
+            try {
+              const raw = Buffer.concat(chunks).toString('utf8') || '{}';
+              resolve(JSON.parse(raw));
+            } catch (e) {
+              reject(e);
+            }
+          });
+          req.on('error', reject);
+        });
+      }
+
       if (method === 'GET' && pathname === '/') {
         const page = `<!doctype html>
 <html>
@@ -89,6 +107,8 @@ export function create_server() {
     <h2>その他</h2>
     <ul>
       <li><a href="/jobs">Jobs UI (placeholder)</a></li>
+      <li><a href="/locations">ロケーション一覧（読み取り）</a></li>
+      <li><a href="/owner">オーナーポータル（最小）</a></li>
     </ul>
     <script>
       async function load() {
@@ -187,12 +207,162 @@ export function create_server() {
         });
       }
 
+      // API: locations (stub)
+      if (method === 'GET' && pathname === '/api/locations') {
+        return json(res, 200, { ok: true, items: get_locations() });
+      }
+      if (method === 'GET' && pathname.startsWith('/api/locations/')) {
+        const id = pathname.split('/').pop();
+        const loc = get_location(id || '');
+        if (!loc) return json(res, 404, { ok: false, error: 'not_found' });
+        return json(res, 200, { ok: true, item: loc });
+      }
+
+      // API: change requests (in-memory)
+      if (method === 'GET' && pathname === '/api/change-requests') {
+        return json(res, 200, { ok: true, items: list_change_requests() });
+      }
+      if (method === 'POST' && pathname === '/api/change-requests') {
+        try {
+          const body = await read_json();
+          const rec = create_change_request({
+            location_id: body?.location_id || null,
+            changes: {
+              phone: body?.phone ?? null,
+              hours: body?.hours ?? null,
+              url: body?.url ?? null,
+              description: body?.description ?? null,
+              photo_url: body?.photo_url ?? null,
+            },
+          });
+          return json(res, 201, { ok: true, id: rec.id });
+        } catch (e) {
+          return json(res, 400, { ok: false, error: 'invalid_json' });
+        }
+      }
+
       if (method === 'GET' && pathname === '/jobs') {
         return html(
           res,
           200,
           '<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body><h1>Jobs UI (placeholder)</h1></body></html>'
         );
+      }
+
+      if (method === 'GET' && pathname === '/locations') {
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Locations</title>
+          <style>body{font-family:system-ui;padding:20px;} ul{padding-left:0;} li{margin:6px 0; list-style:none;} a{color:#06c;}</style>
+        </head><body>
+        <h1>ロケーション一覧（stub）</h1>
+        <ul id="list"></ul>
+        <script>
+          fetch('/api/locations').then(r=>r.json()).then(j=>{
+            const ul = document.getElementById('list');
+            (j.items||[]).forEach(it=>{
+              const li=document.createElement('li');
+              li.innerHTML = '<a href="/locations/'+it.id+'">'+it.name+'</a> - '+(it.phone||'')+' - '+(it.address||'');
+              ul.appendChild(li);
+            });
+          });
+        </script>
+        </body></html>`;
+        return html(res, 200, page);
+      }
+
+      if (method === 'GET' && pathname.startsWith('/locations/')) {
+        const id = pathname.split('/').pop();
+        const loc = get_location(id || '');
+        if (!loc) return html(res, 404, '<!doctype html><html><body><h1>Not Found</h1></body></html>');
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>${loc.name}</title>
+          <style>body{font-family:system-ui;padding:20px;} dt{font-weight:bold;margin-top:8px}</style>
+        </head><body>
+        <p><a href="/locations">← 一覧へ</a></p>
+        <h1>${loc.name}</h1>
+        <dl>
+          <dt>電話</dt><dd>${loc.phone||''}</dd>
+          <dt>住所</dt><dd>${loc.address||''}</dd>
+          <dt>営業時間</dt><dd>${loc.hours||''}</dd>
+          <dt>URL</dt><dd><a href="${loc.url||'#'}" target="_blank" rel="noreferrer">${loc.url||''}</a></dd>
+        </dl>
+        <p style="margin-top:16px"><a href="/owner">変更依頼を出す（オーナーポータル）</a></p>
+        </body></html>`;
+        return html(res, 200, page);
+      }
+
+      if (method === 'GET' && pathname === '/owner') {
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal (stub)</title>
+          <style>
+            body{font-family:system-ui;padding:20px;}
+            .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+            label{display:block;margin-top:8px}
+            input,textarea,select{width:100%;padding:6px}
+            .card{border:1px solid #ddd;border-radius:8px;padding:12px}
+            .ok{color:#090}
+            .err{color:#900}
+            table{width:100%;border-collapse:collapse}
+            th,td{border:1px solid #ddd;padding:6px;text-align:left}
+          </style>
+        </head><body>
+          <h1>オーナーポータル（最小）</h1>
+          <div class="grid">
+            <div class="card">
+              <h2>ステータス/KPI（stub）</h2>
+              <div id="status">loading...</div>
+              <ul id="kpi"><li>Profile completeness: stub</li><li>Token: see Dashboard</li></ul>
+            </div>
+            <div class="card">
+              <h2>変更依頼フォーム（限定項目）</h2>
+              <form id="req">
+                <label>ロケーション<select name="location_id" id="loc"></select></label>
+                <label>電話<input name="phone" /></label>
+                <label>営業時間<input name="hours" /></label>
+                <label>URL<input name="url" /></label>
+                <label>説明<textarea name="description" rows="3"></textarea></label>
+                <label>写真URL<input name="photo_url" /></label>
+                <button type="submit">送信</button>
+                <span id="msg"></span>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="margin-top:16px">
+            <h2>依頼一覧（最新順, stub保存）</h2>
+            <table>
+              <thead><tr><th>ID</th><th>Location</th><th>Status</th><th>Created</th></tr></thead>
+              <tbody id="reqs"></tbody>
+            </table>
+          </div>
+          <script>
+            async function loadStatus(){
+              try{ const j = await (await fetch('/api/dashboard')).json();
+                const el = document.getElementById('status');
+                const authed = j?.session?.authenticated; const email = j?.session?.email;
+                el.innerHTML = 'OAuth: '+(j?.config?.google_configured?'configured':'not configured') + (authed? ' | signed in as <b>'+email+'</b>':'' );
+                el.className = authed? 'ok':'err';
+              }catch{ document.getElementById('status').textContent='status error'; }
+            }
+            async function loadLocations(){
+              const sel = document.getElementById('loc');
+              const j = await (await fetch('/api/locations')).json();
+              (j.items||[]).forEach(it=>{ const o=document.createElement('option'); o.value=it.id; o.textContent=it.name; sel.appendChild(o); });
+            }
+            async function loadRequests(){
+              const tb = document.getElementById('reqs'); tb.innerHTML='';
+              const j = await (await fetch('/api/change-requests')).json();
+              (j.items||[]).forEach(r=>{ const tr=document.createElement('tr');
+                tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||'')+'</td><td>'+r.status+'</td><td>'+r.created_at+'</td>';
+                tb.appendChild(tr);
+              });
+            }
+            document.getElementById('req').onsubmit = async (e)=>{
+              e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
+              const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
+              const j = await r.json(); const m = document.getElementById('msg');
+              if(j.ok){ m.textContent='送信しました: '+j.id; loadRequests(); } else { m.textContent='送信失敗'; }
+            };
+            loadStatus(); loadLocations(); loadRequests();
+          </script>
+        </body></html>`;
+        return html(res, 200, page);
       }
 
       json(res, 404, { ok: false, error: 'not_found' });
