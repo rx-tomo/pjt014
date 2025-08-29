@@ -49,6 +49,23 @@
 - `GET /api/dashboard` ダッシュボード用の集約JSON（セッション・Supabaseの最新保存など）
 - `GET /jobs` ジョブUIプレースホルダー
 
+- 変更依頼（Owner/Review フロー）
+  - `GET /api/change-requests` 一覧（`?location_id=` で絞り込み）
+  - `GET /api/change-requests/:id` 単体取得
+  - `POST /api/change-requests` 作成（必須: `location_id`。任意: `phone,hours,url,description,photo_url,owner_signoff`）
+  - `POST /api/change-requests/:id/status` ステータス更新（`submitted|in_review|needs_fix|approved|syncing|synced|failed`）
+  - `POST /api/change-requests/:id/checks` レビューチェック保存（JSONブール群）
+  - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）
+
+### コンプライアンス設定
+- NG辞書は `config/compliance_rules.json` に定義。存在しない場合はデフォルト（コード内）を使用します。
+- 例スキーマ:
+  ```json
+  [
+    { "key": "overclaim", "label": "過大表現", "patterns": ["絶対", "No\\.?1"] }
+  ]
+  ```
+
 ## 価値検証の最小縦切り（MVP）
 
 初期フェーズでは、ユーザ価値の早期確認のため以下を最小構成で実装・検証します。
