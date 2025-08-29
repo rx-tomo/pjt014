@@ -34,12 +34,13 @@ describe('server', { skip: should_skip }, () => {
     await new Promise((resolve) => server.close(resolve));
   });
 
-  it('GET / responds with project info', async () => {
+  it('GET / responds with HTML dashboard', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/`);
     assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.ok, true);
-    assert.ok(body.urls);
+    const ct = res.headers.get('content-type') || '';
+    assert.ok(ct.includes('text/html'));
+    const text = await res.text();
+    assert.ok(text.includes('Dev Dashboard'));
   });
 
   it('GET /oauth/status returns ok', async () => {
@@ -49,11 +50,11 @@ describe('server', { skip: should_skip }, () => {
     assert.equal(body.ok, true);
   });
 
-  it('GET /api/gbp/oauth returns started true', async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/api/gbp/oauth`);
+  it('GET /api/locations returns ok', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/locations`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.ok, true);
-    assert.equal(body.started, true);
+    assert.ok(Array.isArray(body.items));
   });
 });

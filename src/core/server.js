@@ -220,7 +220,10 @@ export function create_server() {
 
       // API: change requests (in-memory)
       if (method === 'GET' && pathname === '/api/change-requests') {
-        return json(res, 200, { ok: true, items: list_change_requests() });
+        const all = list_change_requests();
+        const locId = query?.location_id || null;
+        const items = locId ? all.filter(r => (r.payload?.location_id||null) === locId) : all;
+        return json(res, 200, { ok: true, items });
       }
       if (method === 'POST' && pathname === '/api/change-requests') {
         try {
@@ -361,7 +364,7 @@ export function create_server() {
             }
             async function loadRequests(){
               const tb = document.getElementById('reqs'); tb.innerHTML='';
-              const j = await (await fetch('/api/change-requests')).json();
+              const j = await (await fetch('/api/change-requests?location_id=${loc.id}')).json();
               (j.items||[]).forEach(r=>{ const tr=document.createElement('tr');
                 tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||'')+'</td><td>'+r.status+'</td><td>'+r.created_at+'</td>';
                 tb.appendChild(tr);
