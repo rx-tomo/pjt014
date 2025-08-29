@@ -11,6 +11,7 @@ export function create_change_request(payload) {
     created_at: now,
     updated_at: now,
     payload: payload || {},
+    checks: {},
   };
   store.set(id, rec);
   return rec;
@@ -32,3 +33,10 @@ export function set_status(id, status) {
   return rec;
 }
 
+export function set_checks(id, checks) {
+  const rec = store.get(id);
+  if (!rec) return null;
+  rec.checks = checks || {};
+  rec.updated_at = new Date().toISOString();
+  return rec;
+}

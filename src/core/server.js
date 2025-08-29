@@ -13,7 +13,7 @@ import { parse_cookies, verify_value } from './cookies.js';
 import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
-import { create_change_request, list_change_requests } from './change_requests_store.js';
+import { create_change_request, list_change_requests, set_status, get_change_request, set_checks } from './change_requests_store.js';
 
 const DEFAULT_PORT = Number(process.env.PORT || 3014);
 // localhostでも外部IFでも到達できるようデフォルトは0.0.0.0
@@ -243,6 +243,28 @@ export function create_server() {
           return json(res, 400, { ok: false, error: 'invalid_json' });
         }
       }
+      if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/status')) {
+        try {
+          const id = pathname.split('/')[3];
+          const body = await read_json();
+          const st = String(body?.status || '').toLowerCase();
+          if (!['submitted','in_review','needs_fix','approved','syncing','synced','failed'].includes(st)) {
+            return json(res, 400, { ok: false, error: 'invalid_status' });
+          }
+          const rec = set_status(id, st);
+          if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+          return json(res, 200, { ok: true });
+        } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
+      }
+      if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/checks')) {
+        try {
+          const id = pathname.split('/')[3];
+          const body = await read_json();
+          const rec = set_checks(id, body || {});
+          if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+          return json(res, 200, { ok: true });
+        } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
+      }
 
       if (method === 'GET' && pathname === '/jobs') {
         return html(
@@ -377,6 +399,58 @@ export function create_server() {
               if(j.ok){ m.textContent='送信しました: '+j.id; loadRequests(); } else { m.textContent='送信失敗'; }
             };
             loadStatus(); loadRequests();
+          </script>
+        </body></html>`;
+        return html(res, 200, page);
+      }
+
+      if (method === 'GET' && pathname === '/review') {
+        const items = list_change_requests();
+        const rows = items.map(r=>`<tr><td><a href="/review/${r.id}">${r.id}</a></td><td>${r.payload?.location_id||''}</td><td>${r.status}</td><td>${r.created_at}</td></tr>`).join('');
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
+          <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px}</style>
+        </head><body>
+          <h1>承認キュー（stub）</h1>
+          <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table>
+        </body></html>`;
+        return html(res, 200, page);
+      }
+
+      if (method === 'GET' && pathname.startsWith('/review/')) {
+        const id = pathname.split('/').pop();
+        const rec = get_change_request(id || '');
+        if (!rec) return html(res, 404, '<!doctype html><html><body><h1>Not Found</h1></body></html>');
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review ${rec.id}</title>
+          <style>body{font-family:system-ui;padding:20px} label{display:block;margin:6px 0}</style>
+        </head><body>
+          <p><a href="/review">← 承認キュー</a></p>
+          <h1>レビュー（stub） - ${rec.payload?.location_id||''}</h1>
+          <pre style="background:#f7f7f7;padding:8px;border:1px solid #eee">${JSON.stringify(rec.payload, null, 2)}</pre>
+          <h2>チェックリスト</h2>
+          <form id="checks">
+            <label><input type="checkbox" name="no_overclaim"> 過大表現なし</label>
+            <label><input type="checkbox" name="has_risk_note"> リスク/副作用の記載</label>
+            <label><input type="checkbox" name="pricing_clear"> 料金の明確性</label>
+            <label><input type="checkbox" name="privacy_safe"> 個人情報に配慮</label>
+            <button type="submit">チェック保存</button>
+          </form>
+          <p id="msg"></p>
+          <p>
+            <button id="approve">承認（approved）</button>
+            <button id="needs_fix">差戻し（needs_fix）</button>
+          </p>
+          <script>
+            document.getElementById('checks').onsubmit = async (e)=>{
+              e.preventDefault(); const f=new FormData(e.target); const obj={}; for(const [k,v] of f.entries()){ obj[k]=true; }
+              await fetch('/api/change-requests/${id}/checks', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
+              document.getElementById('msg').textContent = '保存しました';
+            };
+            async function setStatus(st){
+              const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ status: st })});
+              if((await r.json()).ok){ document.getElementById('msg').textContent = '状態を '+st+' に更新しました'; }
+            }
+            document.getElementById('approve').onclick = ()=> setStatus('approved');
+            document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
           </script>
         </body></html>`;
         return html(res, 200, page);
