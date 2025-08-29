@@ -344,6 +344,9 @@ export function create_server() {
           if (!body || typeof body.location_id !== 'string' || !body.location_id) {
             return json(res, 400, { ok: false, error: 'invalid_location_id' });
           }
+          if (!body || !(body.owner_signoff === true || body.owner_signoff === 'true' || body.owner_signoff === 1 || body.owner_signoff === '1')) {
+            return json(res, 400, { ok: false, error: 'invalid_owner_signoff' });
+          }
           const rec = create_change_request({
             location_id: body?.location_id || null,
             changes: {
@@ -531,8 +534,9 @@ export function create_server() {
             <label>説明<textarea name="description" rows="3" id="desc"></textarea></label>
             <div id="warn" style="color:#900"></div>
             <label>写真URL<input name="photo_url" /></label>
-            <label><input type="checkbox" name="owner_signoff" value="1"> オーナーによる内容確認（必須）</label>
-            <button type="submit">送信</button>
+            <label><input type="checkbox" id="owner_signoff" name="owner_signoff" value="1"> オーナーによる内容確認（必須）</label>
+            <div id="form_err" class="err"></div>
+            <button id="submit_btn" type="submit" disabled>送信</button>
             <span id="msg"></span>
           </form>
             </div>
@@ -555,11 +559,16 @@ export function create_server() {
             }
             async function loadRequests(){
               const tb = document.getElementById('reqs'); tb.innerHTML='';
-              const j = await (await fetch('/api/change-requests?location_id=${loc.id}')).json();
-              (j.items||[]).forEach(r=>{ const tr=document.createElement('tr');
-                tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+(r.status||'')+'</td><td>'+(r.created_at||'')+'</td>';
-                tb.appendChild(tr);
-              });
+              try{
+                const r = await fetch('/api/change-requests?location_id=${loc.id}');
+                const j = await r.json();
+                const arr = j.items||[];
+                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#555">依頼はまだありません</td>'; tb.appendChild(tr); return; }
+                arr.forEach(r=>{ const tr=document.createElement('tr');
+                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+(r.status||'')+'</td><td>'+(r.created_at||'')+'</td>';
+                  tb.appendChild(tr);
+                });
+              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             async function liveCheck(){
               const desc = document.getElementById('desc').value||'';
@@ -571,14 +580,24 @@ export function create_server() {
                 el.innerHTML = hits.length? ('自動チェック: '+hits.map(h=>h.label+':\"'+h.match+'\"').join(', ')) : '';
               }catch{ /* noop */ }
             }
+            function updateSubmit(){
+              const checked = document.getElementById('owner_signoff').checked;
+              document.getElementById('submit_btn').disabled = !checked;
+            }
+            document.getElementById('owner_signoff').addEventListener('change', updateSubmit);
             document.getElementById('req').onsubmit = async (e)=>{
               e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
-              if (obj.owner_signoff) obj.owner_signoff = true; else obj.owner_signoff = false;
-              const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
-              const j = await r.json(); const m = document.getElementById('msg');
-              if(j.ok){ m.textContent='送信しました: '+j.id; loadRequests(); } else { m.textContent='送信失敗'; }
+              const errEl = document.getElementById('form_err'); const m = document.getElementById('msg');
+              m.textContent=''; errEl.textContent='';
+              if (!document.getElementById('owner_signoff').checked){ errEl.textContent='オーナー確認への同意が必要です'; return; }
+              obj.owner_signoff = true;
+              try{
+                const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
+                const j = await r.json();
+                if(j.ok){ m.textContent='送信しました: '+j.id; (e.target).reset(); updateSubmit(); loadRequests(); } else { errEl.textContent='送信失敗: '+(j.error||''); }
+              }catch{ errEl.textContent='送信エラー'; }
             };
-            loadStatus(); loadRequests();
+            loadStatus(); loadRequests(); updateSubmit();
             document.getElementById('desc').addEventListener('input', liveCheck);
             liveCheck();
           </script>
@@ -593,18 +612,22 @@ export function create_server() {
           ${header_nav()}
           <h1>承認キュー</h1>
           <p style="color:#555">対象: オペレーター/承認者。できること: 依頼のレビュー/承認/差戻し。</p>
-          <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"></tbody></table>
+          <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"><tr><td colspan="4" style="color:#555">loading...</td></tr></tbody></table>
           <script>
             async function load(){
-              const j = await (await fetch('/api/change-requests')).json();
               const tb = document.getElementById('rows'); tb.innerHTML='';
-              (j.items||[]).forEach(r=>{
-                const tr = document.createElement('tr');
-                const id = r.id; const loc = (r.location_id||r.payload?.location_id||'');
-                const st = (r.status||''); const created = (r.created_at||'');
-                tr.innerHTML = '<td><a href="/review/'+id+'">'+id+'</a></td><td>'+loc+'</td><td>'+st+'</td><td>'+created+'</td>';
-                tb.appendChild(tr);
-              });
+              try{
+                const j = await (await fetch('/api/change-requests')).json();
+                const arr = j.items||[];
+                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#555">0件</td>'; tb.appendChild(tr); return; }
+                arr.forEach(r=>{
+                  const tr = document.createElement('tr');
+                  const id = r.id; const loc = (r.location_id||r.payload?.location_id||'');
+                  const st = (r.status||''); const created = (r.created_at||'');
+                  tr.innerHTML = '<td><a href="/review/'+id+'">'+id+'</a></td><td>'+loc+'</td><td>'+st+'</td><td>'+created+'</td>';
+                  tb.appendChild(tr);
+                });
+              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             load();
           </script>
@@ -621,9 +644,9 @@ export function create_server() {
           <p><a href="/review">← 承認キュー</a></p>
           <h1>レビュー（stub） - <span id="loc"></span></h1>
           <p style="color:#555">対象: レビュアー/承認者。できること: チェックリスト保存、状態更新（承認/差戻し）。</p>
-          <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee"></pre>
+          <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee">loading...</pre>
           <h2>コンプライアンス（自動チェック・簡易）</h2>
-          <div id="auto"></div>
+          <div id="auto">loading...</div>
           <h2>チェックリスト</h2>
           <form id="checks">
             <label><input type="checkbox" name="no_overclaim"> 過大表現なし</label>
@@ -640,20 +663,22 @@ export function create_server() {
           </p>
           <script>
             async function loadItem(){
-              const j = await (await fetch('/api/change-requests/${id}')).json();
-              if(!j.ok){ document.getElementById('payload').textContent = 'not found'; return; }
-              const item = j.item;
-              document.getElementById('loc').textContent = item.location_id || '';
-              document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
-              // prefill checks
               try{
-                const ch = item.checks||{}; const f = document.getElementById('checks');
-                for(const k of Object.keys(ch)){
-                  const el = f.querySelector('input[name="'+k+'"]'); if(el) el.checked = Boolean(ch[k]);
-                }
-              }catch{}
-              // show owner signoff
-              document.getElementById('owner').textContent = 'オーナー確認: ' + (item.owner_signoff ? '済' : '未');
+                const j = await (await fetch('/api/change-requests/${id}')).json();
+                if(!j.ok){ document.getElementById('payload').textContent = 'not found'; return; }
+                const item = j.item;
+                document.getElementById('loc').textContent = item.location_id || '';
+                document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
+                // prefill checks
+                try{
+                  const ch = item.checks||{}; const f = document.getElementById('checks');
+                  for(const k of Object.keys(ch)){
+                    const el = f.querySelector('input[name="'+k+'"]'); if(el) el.checked = Boolean(ch[k]);
+                  }
+                }catch{}
+                // show owner signoff
+                document.getElementById('owner').textContent = 'オーナー確認: ' + (item.owner_signoff ? '済' : '未');
+              }catch{ document.getElementById('payload').textContent='取得に失敗しました'; }
             }
             async function loadAuto(){
               try{
@@ -670,12 +695,18 @@ export function create_server() {
             }
             document.getElementById('checks').onsubmit = async (e)=>{
               e.preventDefault(); const f=new FormData(e.target); const obj={}; for(const [k,v] of f.entries()){ obj[k]=true; }
-              await fetch('/api/change-requests/${id}/checks', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
-              document.getElementById('msg').textContent = '保存しました';
+              try{
+                const r = await fetch('/api/change-requests/${id}/checks', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
+                const j = await r.json();
+                document.getElementById('msg').textContent = j.ok? '保存しました' : '保存に失敗しました';
+              }catch{ document.getElementById('msg').textContent='保存エラー'; }
             };
             async function setStatus(st){
-              const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ status: st })});
-              if((await r.json()).ok){ document.getElementById('msg').textContent = '状態を '+st+' に更新しました'; }
+              try{
+                const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ status: st })});
+                const j = await r.json();
+                document.getElementById('msg').textContent = j.ok? ('状態を '+st+' に更新しました') : '更新に失敗しました';
+              }catch{ document.getElementById('msg').textContent='更新エラー'; }
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
