@@ -28,6 +28,9 @@
 - Approvals: レビュアー→承認者のダブルチェック（4-eyes）、差戻し運用
 - Notifications & SLA: 期限管理/遅延通知/失敗通知（メール/Slack）
 - Billing: プラン/請求/支払い（将来フェーズ）
+ - Rank Tracking & Reviews: 順位トラッキングとレビュー一元管理（返信テンプレ/監修導線）
+ - KPIs & Measurement: KPI定義と計測仕様の実装（透明性・第三者監査許容）
+ - Ops & QA: SLAの実装・計測・ダッシュボード化（24h/48hなどのターゲット）
 
 該当シナリオ・ワークフローは `docs/product/USE_CASES.md` と `docs/product/WORKFLOWS.md` を参照。
 

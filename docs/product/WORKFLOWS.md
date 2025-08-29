@@ -2,12 +2,13 @@
 
 ## 変更申請の状態遷移（state machine）
 
-- draft → submitted → in_review → needs_fix → approved → syncing → synced | failed
+- draft → submitted → in_review → needs_fix → approved → (owner_signoff optional) → syncing → synced | failed
   - draft: オーナー/担当が作成、未提出
   - submitted: 提出済み、レビュー待ち
   - in_review: レビュアーがチェック中（チェックリスト/AI補助）
   - needs_fix: 差戻し（理由・修正点）
   - approved: 承認者が承認（4-eyes）
+  - owner_signoff: 規制リスクが高い文言等はオーナー最終確認（契約で運用ポリシー選択）
   - syncing: GBP APIへ反映中（update_maskで限定更新）
   - synced: 正常反映
   - failed: 反映失敗（再試行/原因管理）
@@ -32,10 +33,9 @@ RLSは `users`/`memberships`/`roles` を用いてテナント/組織境界を強
 
 ## 通知とSLA
 
-- SLA例: 依頼受付から初回レビューまでx時間、承認までy時間
+- SLA例: 依頼受付→初回レビュー ≤ 24h、承認→休診反映 ≤ 24h、レビュー返信 初回応答 ≤ 48h
 - 遅延/失敗/差戻しに対してメール/Slack通知
 
 ## 監査ログ
 
 - 重要操作（提出/承認/反映）の実施者・日時・差分・外部応答（ステータス/エラー）を保持
-

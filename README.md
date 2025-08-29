@@ -64,6 +64,13 @@
 - 利用シーン: `docs/product/USE_CASES.md`
 - ワークフロー: `docs/product/WORKFLOWS.md`
 - 価値定義: `docs/product/VALUE.md`
+- KPI定義: `docs/product/KPIS.md`
+- 計測仕様（順位・CV）: `docs/product/MEASUREMENT_SPEC.md`
+- オペ運用/SLA/QA: `docs/product/OPS_QA.md`
+- 価格とプラン（例）: `docs/product/PRICING.md`
+- DDパッケージ（想定）: `docs/product/DD_PACKAGE.md`
+- 営業テンプレ（参考）: `docs/product/SALES_TEMPLATES.md`
+- コンプライアンス指針: `docs/product/COMPLIANCE.md`
 
 ## テスト
 
