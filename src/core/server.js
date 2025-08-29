@@ -33,6 +33,18 @@ function json(res, status, data) {
     res.end(body);
   }
 
+  // Simple top navigation to clarify who each screen is for
+  function header_nav() {
+    return `
+      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd">
+        <a href="/">Home</a> |
+        <a href="/locations">Locations</a> |
+        <a href="/owner">Owner Portal</a> |
+        <a href="/review">Review Queue</a>
+      </nav>
+    `;
+  }
+
   function seconds_left(session) {
     try {
       const expIn = Number(session?.tokens?.expires_in || 0);
@@ -92,8 +104,17 @@ export function create_server() {
     </style>
   </head>
   <body>
+    ${header_nav()}
     <h1>pjt014 Dev Dashboard</h1>
     <p>ローカル環境の確認用ダッシュボードです。</p>
+    <div style="background:#f6fafe;border:1px solid #cde;padding:10px;border-radius:6px;margin:10px 0">
+      <b>画面の使い分け（デモ）</b>
+      <ul>
+        <li><a href="/owner">Owner Portal</a>: 対象=オーナー。自分のロケーションを選び、変更依頼を提出。</li>
+        <li><a href="/review">Review Queue</a>: 対象=オペレーター/承認者。依頼のチェック/承認/差戻し。</li>
+        <li><a href="/locations">Locations</a>: 対象=全ユーザー（閲覧）。ロケーション一覧/詳細の確認。</li>
+      </ul>
+    </div>
     <h2>Dashboard</h2>
     <div id="auth" style="margin-bottom:12px;">
       <div id="status">loading...</div>
@@ -270,7 +291,7 @@ export function create_server() {
         return html(
           res,
           200,
-          '<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body><h1>Jobs UI (placeholder)</h1></body></html>'
+          `<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body>${header_nav()}<h1>Jobs UI (placeholder)</h1></body></html>`
         );
       }
 
@@ -278,7 +299,9 @@ export function create_server() {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Locations</title>
           <style>body{font-family:system-ui;padding:20px;} ul{padding-left:0;} li{margin:6px 0; list-style:none;} a{color:#06c;}</style>
         </head><body>
+        ${header_nav()}
         <h1>ロケーション一覧（stub）</h1>
+        <p style="color:#555">対象: 閲覧者/オーナー/オペレーター（デモ）。できること: ロケーションの閲覧、詳細へ遷移。</p>
         <ul id="list"></ul>
         <script>
           fetch('/api/locations').then(r=>r.json()).then(j=>{
@@ -301,8 +324,9 @@ export function create_server() {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>${loc.name}</title>
           <style>body{font-family:system-ui;padding:20px;} dt{font-weight:bold;margin-top:8px}</style>
         </head><body>
-        <p><a href="/locations">← 一覧へ</a></p>
+        ${header_nav()}<p><a href="/locations">← 一覧へ</a></p>
         <h1>${loc.name}</h1>
+        <p style="color:#555">対象: 閲覧者/オーナー/オペレーター（デモ）。できること: 基本情報の確認、オーナー編集画面へ。</p>
         <dl>
           <dt>電話</dt><dd>${loc.phone||''}</dd>
           <dt>住所</dt><dd>${loc.address||''}</dd>
@@ -321,7 +345,9 @@ export function create_server() {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
           <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
         </head><body>
+          ${header_nav()}
           <h1>オーナーポータル：ロケーション選択</h1>
+          <p style="color:#555">対象: オーナー。できること: 編集対象のロケーションを選択。</p>
           <p>編集したいロケーションを選択してください。</p>
           <ul>${li}</ul>
         </body></html>`;
@@ -346,8 +372,10 @@ export function create_server() {
             a{color:#06c}
           </style>
         </head><body>
+          ${header_nav()}
           <p><a href="/owner">← ロケーション選択へ</a></p>
           <h1>オーナーポータル（最小） - ${loc.name}</h1>
+          <p style="color:#555">対象: オーナー。できること: 基本項目の変更依頼を提出（保存は開発用の一時保存）。</p>
           <div class="grid">
             <div class="card">
               <h2>ステータス/KPI（stub）</h2>
@@ -410,7 +438,9 @@ export function create_server() {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
           <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px}</style>
         </head><body>
+          ${header_nav()}
           <h1>承認キュー（stub）</h1>
+          <p style="color:#555">対象: オペレーター/承認者。できること: 依頼のレビュー/承認/差戻し。</p>
           <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table>
         </body></html>`;
         return html(res, 200, page);
@@ -423,8 +453,10 @@ export function create_server() {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review ${rec.id}</title>
           <style>body{font-family:system-ui;padding:20px} label{display:block;margin:6px 0}</style>
         </head><body>
+          ${header_nav()}
           <p><a href="/review">← 承認キュー</a></p>
           <h1>レビュー（stub） - ${rec.payload?.location_id||''}</h1>
+          <p style="color:#555">対象: レビュアー/承認者。できること: チェックリスト保存、状態更新（承認/差戻し）。</p>
           <pre style="background:#f7f7f7;padding:8px;border:1px solid #eee">${JSON.stringify(rec.payload, null, 2)}</pre>
           <h2>チェックリスト</h2>
           <form id="checks">

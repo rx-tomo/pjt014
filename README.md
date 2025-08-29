@@ -64,6 +64,7 @@
 - 利用シーン: `docs/product/USE_CASES.md`
 - ワークフロー: `docs/product/WORKFLOWS.md`
 - 価値定義: `docs/product/VALUE.md`
+- 画面マップ（試用デモ）: `docs/product/SCREEN_MAP.md`
 - KPI定義: `docs/product/KPIS.md`
 - 計測仕様（順位・CV）: `docs/product/MEASUREMENT_SPEC.md`
 - オペ運用/SLA/QA: `docs/product/OPS_QA.md`
