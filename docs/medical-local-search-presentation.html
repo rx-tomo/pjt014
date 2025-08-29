@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>医療機関の実来院を最大化する「ローカル検索×運用代行」スイート</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --secondary: #06b6d4;
+            --accent: #8b5cf6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --gray: #64748b;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .presentation-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .slide {
+            background: white;
+            border-radius: 20px;
+            padding: 60px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            position: relative;
+            overflow: hidden;
+            animation: slideIn 0.6s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary), var(--accent));
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .slide-number {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: var(--gray);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            color: var(--dark);
+            margin-bottom: 30px;
+            line-height: 1.3;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        h2 {
+            font-size: 1.8em;
+            color: var(--dark);
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid transparent;
+            border-image: linear-gradient(90deg, var(--primary), var(--secondary)) 1;
+            font-weight: 700;
+        }
+
+        h3 {
+            font-size: 1.4em;
+            color: var(--primary-dark);
+            margin: 25px 0 15px;
+            font-weight: 600;
+        }
+
+        p, li {
+            font-size: 1.1em;
+            line-height: 1.8;
+            color: var(--dark);
+            margin-bottom: 15px;
+        }
+
+        strong {
+            color: var(--primary-dark);
+            font-weight: 700;
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        ul li {
+            position: relative;
+            padding-left: 35px;
+            margin-bottom: 15px;
+            transition: transform 0.3s ease;
+        }
+
+        ul li:hover {
+            transform: translateX(5px);
+        }
+
+        ul li::before {
+            content: '▶';
+            position: absolute;
+            left: 0;
+            color: var(--secondary);
+            font-size: 0.8em;
+            top: 5px;
+        }
+
+        .title-slide {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 100px 60px;
+        }
+
+        .title-slide h1 {
+            font-size: 3.5em;
+            color: white;
+            -webkit-text-fill-color: white;
+            margin-bottom: 40px;
+            text-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .title-slide p {
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 1.3em;
+        }
+
+        .highlight-box {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            border-left: 5px solid var(--primary);
+            padding: 25px;
+            margin: 25px 0;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(37, 99, 235, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .highlight-box:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.15);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+            margin: 30px 0;
+        }
+
+        .metric-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border-color: var(--primary);
+        }
+
+        .metric-card:hover::after {
+            transform: scaleX(1);
+        }
+
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .metric-label {
+            color: var(--gray);
+            font-size: 1em;
+            font-weight: 600;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 50px;
+            margin: 30px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(180deg, var(--primary), var(--secondary));
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-bottom: 30px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -40px;
+            top: 5px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 3px solid white;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .badge-primary {
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--primary);
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .process-flow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 40px 0;
+            flex-wrap: wrap;
+        }
+
+        .process-step {
+            flex: 1;
+            text-align: center;
+            padding: 20px;
+            position: relative;
+        }
+
+        .process-step:not(:last-child)::after {
+            content: '→';
+            position: absolute;
+            right: -20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 2em;
+            color: var(--secondary);
+        }
+
+        .process-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 15px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin: 40px 0;
+        }
+
+        .feature-card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+            border-color: var(--primary);
+        }
+
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+        }
+
+        .kpi-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 30px 0;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .kpi-table th {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 20px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .kpi-table td {
+            padding: 18px 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .kpi-table tr:hover {
+            background: #f8fafc;
+        }
+
+        .cta-section {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 50px;
+            border-radius: 20px;
+            text-align: center;
+            margin: 40px 0;
+            box-shadow: 0 15px 40px rgba(37, 99, 235, 0.3);
+        }
+
+        .cta-section h2 {
+            color: white;
+            border: none;
+            margin-bottom: 20px;
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 15px 40px;
+            background: white;
+            color: var(--primary);
+            border-radius: 30px;
+            font-weight: 700;
+            font-size: 1.1em;
+            text-decoration: none;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .cta-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        @media (max-width: 768px) {
+            .slide {
+                padding: 30px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .process-step:not(:last-child)::after {
+                display: none;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e2e8f0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 15px;
+            color: white;
+            font-weight: 700;
+            animation: fillProgress 2s ease-out;
+        }
+
+        @keyframes fillProgress {
+            from { width: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation-container">
+        <!-- タイトルスライド -->
+        <div class="slide title-slide">
+            <h1>医療機関の実来院を最大化する<br>「ローカル検索×運用代行」スイート</h1>
+            <p>2,000院の"既存取引"を起点に、短期で ARR を積み上げる実装主義の成長戦略</p>
+            <p>法令準拠（医療広告ガイドライン・個情法）、現場運用、データ基盤までを一気通貫</p>
+        </div>
+
+        <!-- エグゼクティブサマリ -->
+        <div class="slide">
+            <span class="slide-number">1</span>
+            <h2>エグゼクティブサマリ</h2>
+            <div class="highlight-box">
+                <strong>既存2,000院へのクロスセルで、初年度 ARR 3.2〜5.4億円を現実的に狙う設計</strong>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">2,000院</div>
+                    <div class="metric-label">既存取引基盤</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">4.5万円</div>
+                    <div class="metric-label">月額ARPU（標準）</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">65→75%</div>
+                    <div class="metric-label">粗利率（漸増）</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">5.4億円</div>
+                    <div class="metric-label">ARR（50%採用時）</div>
+                </div>
+            </div>
+
+            <ul>
+                <li><strong>需要：</strong>患者の来院意思決定は「スマホ地図＋口コミ」依存へシフト。医療は"近さ×安心"がKPI</li>
+                <li><strong>ソリューション：</strong>Googleビジネスプロフィール(GBP)運用代行＋レビュー運用＋休診反映＋順位/可視化レポ</li>
+                <li><strong>優位：</strong>①既存取引の信頼・導入ハードル低、②医療ガイドライン準拠ノウハウ、③運用×データの反復最適化</li>
+                <li><strong>経済性：</strong>CACほぼゼロ＝即回収</li>
+            </ul>
+        </div>
+
+        <!-- 課題 -->
+        <div class="slide">
+            <span class="slide-number">2</span>
+            <h2>課題（患者・医院・規制の三層）</h2>
+            <div class="highlight-box">
+                <strong>"見つかる・選ばれる・迷わせない"を、医療広告規制下で両立するのが難しい</strong>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">👤</div>
+                    <h3>患者視点</h3>
+                    <p>検索→地図3枠→口コミ確認→電話/ルート。最新情報が1つでも古いと離脱</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏥</div>
+                    <h3>医院視点</h3>
+                    <p>診療時間/臨時休診/写真/口コミ返信を継続運用できない（人的余力がない）</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚖️</div>
+                    <h3>規制視点</h3>
+                    <p>医療広告ガイドライン＆個人情報保護（レビュー返信・表現管理）で専門知見が要る</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 解決策 -->
+        <div class="slide">
+            <span class="slide-number">3</span>
+            <h2>解決策（プロダクト/サービス全体像）</h2>
+            <div class="highlight-box">
+                <strong>"運用オペレータブルなSaaS＋BPO"の二層構造</strong>
+            </div>
+
+            <div class="process-flow">
+                <div class="process-step">
+                    <div class="process-icon">1</div>
+                    <h3>コア運用</h3>
+                    <p>GBP運用代行<br>週次投稿・口コミ返信</p>
+                </div>
+                <div class="process-step">
+                    <div class="process-icon">2</div>
+                    <h3>SaaS基盤</h3>
+                    <p>順位トラッキング<br>レビュー一元管理</p>
+                </div>
+                <div class="process-step">
+                    <div class="process-icon">3</div>
+                    <h3>ガバナンス</h3>
+                    <p>ガイドライン辞書<br>監査証跡</p>
+                </div>
+            </div>
+
+            <ul>
+                <li><strong>コア：</strong>GBP運用代行（週次投稿・口コミ返信・臨時休診反映・写真更新・月次インサイト）</li>
+                <li><strong>SaaS：</strong>順位トラッキング、レビュー一元管理、プロフィール完全性スコア、違反表現チェック</li>
+                <li><strong>ガバナンス：</strong>ガイドライン辞書、レビュー返信テンプレ、二重承認フロー、変更ログ・監査証跡</li>
+                <li><strong>成果連動オプション：</strong>ローカルパック上位維持で追加報酬（"ベース＋成果"のハイブリッドも可）</li>
+            </ul>
+        </div>
+
+        <!-- なぜ今か -->
+        <div class="slide">
+            <span class="slide-number">4</span>
+            <h2>なぜ今か（タイミング）</h2>
+            <div class="highlight-box">
+                <strong>患者行動の"地図主導化"、医院DXの"現場稼働不足"、検索面の寡占化</strong>
+            </div>
+
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h3>スマホローカル検索の占有時間増加</h3>
+                    <p>患者の意思決定プロセスが根本的に変化</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>医院の人手不足</h3>
+                    <p>運用リソースの確保が困難に</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>Googleエコシステム依存度の上昇</h3>
+                    <p>プラットフォーム最適化が必須に</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 進捗 -->
+        <div class="slide">
+            <span class="slide-number">5</span>
+            <h2>進捗（トラクションの核：既存2,000院）</h2>
+            <div class="highlight-box">
+                <strong>最強の起点＝2,000院との取引実績（請求・窓口・現場連携が済）</strong>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">≒ 0</div>
+                    <div class="metric-label">信頼コスト</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">週単位</div>
+                    <div class="metric-label">導入リードタイム</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">整備済</div>
+                    <div class="metric-label">初期データ</div>
+                </div>
+            </div>
+
+            <ul>
+                <li><strong>信頼コスト ≒ 0：</strong>契約交渉・反社/与信・稟議の地ならし済み</li>
+                <li><strong>導入LT短縮：</strong>見積→導入→初回レポまでを"週"単位で回せる</li>
+                <li><strong>データの初期値：</strong>住所/NAP等の整備が進んでおり、GBP最適化の初期工数が小さい</li>
+            </ul>
+        </div>
+
+        <!-- 競争優位 -->
+        <div class="slide">
+            <span class="slide-number">6</span>
+            <h2>競争優位（Defensibility）</h2>
+            <div class="highlight-box">
+                <strong>"医療ガバナンス×運用BPO×ローカル検索データ"を一体化</strong>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📋</div>
+                    <h3>規制同居</h3>
+                    <p>医療広告NG表現の辞書化、レビュー返信のコンプラ監修テンプレ、限定解除要件の運用</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>運用スケール</h3>
+                    <p>SLA（24時間以内の休診反映/48時間以内のレビュー返信）、Ops標準化、品質モニタリング</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>データの堀</h3>
+                    <p>2,000院×地域/診療科の"施策→順位→流入/行動"の反復データからプレイブック抽出</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ビジネスモデル & 価格 -->
+        <div class="slide">
+            <span class="slide-number">7</span>
+            <h2>ビジネスモデル & 価格（標準プラン例）</h2>
+            
+            <h3>単院あたり料金体系</h3>
+            <table class="kpi-table">
+                <thead>
+                    <tr>
+                        <th>プラン</th>
+                        <th>月額料金</th>
+                        <th>粗利率</th>
+                        <th>初期費用</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>スタンダード</strong></td>
+                        <td>45,000円</td>
+                        <td>65%想定</td>
+                        <td rowspan="2">70,000円<br>（撮影・テンプレ整備・ベースライン計測）</td>
+                    </tr>
+                    <tr>
+                        <td><strong>アドバンス</strong></td>
+                        <td>90,000円</td>
+                        <td>70%想定</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>ボリュームディスカウント</h3>
+            <div class="highlight-box">
+                <span class="badge badge-primary">50院超：▲10%</span>
+                <span class="badge badge-success">200院超：▲15%</span>
+                <span class="badge badge-warning">1,000院超：個別見積</span>
+            </div>
+        </div>
+
+        <!-- スケール試算 -->
+        <div class="slide">
+            <span class="slide-number">8</span>
+            <h2>スケール試算（採用率シナリオ×粗利）</h2>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">1.08億円</div>
+                    <div class="metric-label">ARR（10%採用・200院）</div>
+                    <p style="font-size: 0.9em; color: var(--gray);">粗利0.7億、GM約65%</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">3.24億円</div>
+                    <div class="metric-label">ARR（30%採用・600院）</div>
+                    <p style="font-size: 0.9em; color: var(--gray);">粗利2.1億、GM約65%→72%</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">5.40億円</div>
+                    <div class="metric-label">ARR（50%採用・1,000院）</div>
+                    <p style="font-size: 0.9em; color: var(--gray);">粗利3.8億、GM約70%超</p>
+                </div>
+            </div>
+
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 50%;">
+                    採用率 50% 目標
+                </div>
+            </div>
+        </div>
+
+        <!-- 単位経済 -->
+        <div class="slide">
+            <span class="slide-number">9</span>
+            <h2>単位経済（Unit Economics）</h2>
+            <div class="highlight-box">
+                <strong>CAC ≒ 0／Payback ≪ 1ヶ月（既存顧客クロスセル）</strong>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">69.6万円</div>
+                    <div class="metric-label">LTV/院（24ヶ月）</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">29,000円</div>
+                    <div class="metric-label">月次粗利</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">1.5%</div>
+                    <div class="metric-label">月次解約率（仮定）</div>
+                </div>
+            </div>
+
+            <ul>
+                <li><strong>COGS内訳：</strong>ツール1院あたり 5,000〜8,000円／運用OP工数 3–5h/月（自動化で漸減）</li>
+                <li><strong>LTV：</strong>月次粗利 29,000円 × 継続月数（例：24ヶ月）＝ 約69.6万円/院</li>
+                <li><strong>解約（仮定）：</strong>月次 1.5% → 年次 16–18%</li>
+            </ul>
+        </div>
+
+        <!-- オペレーション設計 -->
+        <div class="slide">
+            <span class="slide-number">10</span>
+            <h2>オペレーション設計（品質×スケール）</h2>
+            <div class="highlight-box">
+                <strong>"人手×自動化"の最適比率＋SLA</strong>
+            </div>
+
+            <h3>SLA（サービスレベル合意）</h3>
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h3>24時間以内</h3>
+                    <p>臨時情報反映</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>48時間以内</h3>
+                    <p>レビュー返信</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>月次レポート</h3>
+                    <p>KPI：露出/経路/通話</p>
+                </div>
+            </div>
+
+            <ul>
+                <li><strong>体制：</strong>1オペレーター＝標準80院（アドバンス45院）／リーダー1名で品質監査</li>
+                <li><strong>自動化：</strong>休診テンプレ、ガイドライン辞書チェック、定型レビュー返信、順位レポ自動生成</li>
+                <li><strong>QC：</strong>サンプリングレビュー、A/Bテンプレ、エスカレーション（法務/監修）</li>
+            </ul>
+        </div>
+
+        <!-- KPI設計 -->
+        <div class="slide">
+            <span class="slide-number">11</span>
+            <h2>KPI設計（見せる数字）</h2>
+            <div class="highlight-box">
+                <strong>導入30/60/90日で"患者行動KPI"を改善する</strong>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">👁️</div>
+                    <h3>露出</h3>
+                    <ul>
+                        <li>ローカルパック表示回数</li>
+                        <li>ランキング中央値</li>
+                        <li>プロフィール完全性スコア</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>行動</h3>
+                    <ul>
+                        <li>電話タップ率</li>
+                        <li>ルート検索率</li>
+                        <li>Web遷移率</li>
+                        <li>予約導線CTR</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">✨</div>
+                    <h3>品質</h3>
+                    <ul>
+                        <li>レビュー返信率/速度</li>
+                        <li>違反表現ゼロ</li>
+                        <li>情報鮮度</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- 競合環境 -->
+        <div class="slide">
+            <span class="slide-number">12</span>
+            <h2>競合環境（カテゴリ別の見立て）</h2>
+            
+            <table class="kpi-table">
+                <thead>
+                    <tr>
+                        <th>競合カテゴリ</th>
+                        <th>強み</th>
+                        <th>弱み</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>MEO専業</strong></td>
+                        <td>実装力高い</td>
+                        <td>医療法対応はムラ</td>
+                    </tr>
+                    <tr>
+                        <td><strong>広告代理店</strong></td>
+                        <td>獲得は得意</td>
+                        <td>ローカル運用の継続は弱い</td>
+                    </tr>
+                    <tr>
+                        <td><strong>口コミ媒体</strong></td>
+                        <td>媒体内での可視化は強い</td>
+                        <td>GBP最適化は限定</td>
+                    </tr>
+                    <tr>
+                        <td><strong>自走</strong></td>
+                        <td>コスト最小</td>
+                        <td>継続工数・ルール変化対応が重い</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="highlight-box" style="margin-top: 30px;">
+                <strong>当社の差別化：</strong>"医療ガバナンス×運用BPO×データ"の三位一体
+            </div>
+        </div>
+
+        <!-- 規制・法令準拠 -->
+        <div class="slide">
+            <span class="slide-number">13</span>
+            <h2>規制・法令準拠（リスク最重要スライド）</h2>
+            
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚖️</div>
+                    <h3>医療広告ガイドライン</h3>
+                    <ul>
+                        <li>NG表現辞書・テンプレ運用</li>
+                        <li>限定解除要件の事前設計</li>
+                        <li>症例・体験談の扱いルール化</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>個人情報保護</h3>
+                    <ul>
+                        <li>レビューポリシー準拠の返信</li>
+                        <li>削除依頼は適法要件に基づき</li>
+                        <li>PII/ログの取扱い</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>情報セキュリティ</h3>
+                    <ul>
+                        <li>アクセス制御</li>
+                        <li>監査証跡</li>
+                        <li>委託先管理</li>
+                        <li>ISMS相当の管理策</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- リスク & 緩和策 -->
+        <div class="slide">
+            <span class="slide-number">14</span>
+            <h2>リスク & 緩和策</h2>
+            
+            <table class="kpi-table">
+                <thead>
+                    <tr>
+                        <th>リスク項目</th>
+                        <th>緩和策</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>アルゴリズム変更</strong></td>
+                        <td>プレイブック更新サイクル（四半期）とA/B枠</td>
+                    </tr>
+                    <tr>
+                        <td><strong>運用品質のばらつき</strong></td>
+                        <td>QCチェックリスト、監査スコア連動の教育</td>
+                    </tr>
+                    <tr>
+                        <td><strong>医院内体制依存</strong></td>
+                        <td>臨時情報の連絡導線（LINE/フォーム）を二重化</td>
+                    </tr>
+                    <tr>
+                        <td><strong>評判リスク</strong></td>
+                        <td>クレーム一次受け→法務/顧問監修へ段階エスカレーション</td>
+                    </tr>
+                    <tr>
+                        <td><strong>顧客集中</strong></td>
+                        <td>診療科/地域の分散導入、媒体依存バランス</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ロードマップ -->
+        <div class="slide">
+            <span class="slide-number">15</span>
+            <h2>ロードマップ（12ヶ月）</h2>
+            
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h3>Q1：基盤構築</h3>
+                    <p>先行100院のCoE（テンプレ化）、ランキング中央値＋行動CVのベンチマーク確立</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>Q2：規模拡大</h3>
+                    <p>600院へ展開、自動化30%到達、GM 70%超／成果連動の再設計</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>Q3：目標達成</h3>
+                    <p>1,000院達成、データサマリー年次版（地域×診療科ベンチマーク）を"医院価値"として還元</p>
+                </div>
+                <div class="timeline-item">
+                    <h3>Q4：深耕展開</h3>
+                    <p>多院グループ/美容系アドバンスの深耕、関連クロスセル（簡易LP/予約導線）</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 成功事例 -->
+        <div class="slide">
+            <span class="slide-number">16</span>
+            <h2>成功事例</h2>
+            
+            <div class="highlight-box">
+                <h3>医院A：内科・駅徒歩3分</h3>
+                <div class="metrics-grid" style="margin-top: 20px;">
+                    <div class="metric-card">
+                        <div class="metric-value">8位→3位</div>
+                        <div class="metric-label">60日でローカルパック中央値</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">+32%</div>
+                        <div class="metric-label">電話タップ率</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">100%</div>
+                        <div class="metric-label">レビュー返信率</div>
+                    </div>
+                </div>
+                
+                <ul style="margin-top: 20px;">
+                    <li>休診情報の当日反映で"電話問合せの無駄"が減り、受付が本来業務へ回帰</li>
+                    <li>コンプラ点検：NG表現2件を修正、限定解除要件の掲示整備</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 財務見通し -->
+        <div class="slide">
+            <span class="slide-number">18</span>
+            <h2>財務見通し（簡易PL：600院採用時）</h2>
+            
+            <table class="kpi-table">
+                <thead>
+                    <tr>
+                        <th>項目</th>
+                        <th>金額</th>
+                        <th>比率</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>売上</strong></td>
+                        <td>3.24億円</td>
+                        <td>100%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>COGS</strong></td>
+                        <td>1.0億円</td>
+                        <td>31%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>粗利</strong></td>
+                        <td>2.2億円</td>
+                        <td>GM 68%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>販管費</strong></td>
+                        <td>1.1億円</td>
+                        <td>34%</td>
+                    </tr>
+                    <tr style="background: #f0f9ff;">
+                        <td><strong>営業利益</strong></td>
+                        <td><strong>1.1億円</strong></td>
+                        <td><strong>OPM 34%</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <p style="margin-top: 20px; font-size: 0.95em; color: var(--gray);">
+                ※初期費用は別計上で導入期の資金繰りにプラス
+            </p>
+        </div>
+
+        <!-- 要請 -->
+        <div class="slide">
+            <span class="slide-number">19</span>
+            <h2>要請（Ask）</h2>
+            
+            <div class="cta-section">
+                <h2>大規模導入への前進</h2>
+                
+                <div class="feature-grid" style="margin-top: 30px;">
+                    <div class="feature-card" style="background: rgba(255, 255, 255, 0.1); border: 2px solid white;">
+                        <h3 style="color: white;">大型一括導入</h3>
+                        <p style="color: rgba(255, 255, 255, 0.9);">1,000院規模での単価・SLA・セキュリティ条項の前提合意</p>
+                    </div>
+                    <div class="feature-card" style="background: rgba(255, 255, 255, 0.1); border: 2px solid white;">
+                        <h3 style="color: white;">共同データレポート化</h3>
+                        <p style="color: rgba(255, 255, 255, 0.9);">地域×診療科のランキング・行動ベンチマークを匿名集計で年次発行</p>
+                    </div>
+                    <div class="feature-card" style="background: rgba(255, 255, 255, 0.1); border: 2px solid white;">
+                        <h3 style="color: white;">成果連動パイロット</h3>
+                        <p style="color: rgba(255, 255, 255, 0.9);">100院／90日でKPI改善の実証→ロールアウト</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 付録 -->
+        <div class="slide">
+            <span class="slide-number">20-23</span>
+            <h2>付録資料</h2>
+            
+            <h3>付録A：指標定義</h3>
+            <ul>
+                <li><strong>プロフィール完全性スコア：</strong>必須項目の充足率＋写真枚数＋更新鮮度を合成</li>
+                <li><strong>レビュー運用SLA：</strong>返信率・平均初回応答時間・テンプレ遵守率</li>
+                <li><strong>行動CV：</strong>電話・ルート・サイト遷移のタップ率（分母＝表示回数）</li>
+                <li><strong>ランキング中央値：</strong>対象キーワード群の順位分布から中央値</li>
+            </ul>
+
+            <h3 style="margin-top: 30px;">付録B：DDパッケージ</h3>
+            <div class="highlight-box">
+                <ol>
+                    <li>運用SOP（作業票・チェックリスト・承認フロー・監査ログ例）</li>
+                    <li>法令準拠文書（医療広告ガイドライン対応方針、NG表現辞書抜粋）</li>
+                    <li>セキュリティ（アクセス権限設計、監査証跡、委託先管理）</li>
+                    <li>KPIダッシュボード例（匿名化されたベンチマーク）</li>
+                    <li>3ヶ月パイロット設計書</li>
+                    <li>契約ひな形（SLA/責任分解/賠償上限/成果連動条項）</li>
+                    <li>個人情報取扱い（同意・利用目的、第三者提供の有無）</li>
+                </ol>
+            </div>
+
+            <h3 style="margin-top: 30px;">付録C：想定"ツッコミ"と回答（想定問答）</h3>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q1: Googleアルゴリズムに依存しすぎでは？</strong></p>
+                <p>A: 多チャネル導線（自院サイト・予約・電話）を同時強化し"地図偏重"を回避。施策はガイドライン準拠で長期適合。四半期ごとにプレイブック更新。</p>
+            </div>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q2: 競合優位は持続するのか？</strong></p>
+                <p>A: 医療広告ガイドライン運用のノウハウ（辞書・テンプレ・監修フロー）と、2,000院の反復データが"堀"。履歴資産の積み上げがスイッチングコストに。</p>
+            </div>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q3: スケールすると品質が落ちるのでは？</strong></p>
+                <p>A: OPS標準化＋QAスコアの可視化でボトルネックを前倒し検知。SLA未達は根因分析→教育/手順更新の仕組化。</p>
+            </div>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q4: 医療法リスクが怖い。</strong></p>
+                <p>A: 二重承認＆監修導線、NG辞書の自動チェック、ログ保存、顧客側最終承認でリスク分界を契約化。違反ゼロのベンチマーク維持をKPIに。</p>
+            </div>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q5: 解約率の見立て根拠は？</strong></p>
+                <p>A: 医療は"定常運用の価値"が高く、季節変動も読める。レビュー/臨時反映の運用を止めると目に見えて悪化するため粘着性が高い。実績で検証し、公開KPIに反映。</p>
+            </div>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q6: 粗利はどこまで伸びる？</strong></p>
+                <p>A: 自動化比率の上昇（定型返信/レポ自動生成/辞書チェック）＋アカウント当たり担当数の増加で75%を目標。</p>
+            </div>
+            
+            <div class="feature-card" style="margin-bottom: 20px;">
+                <p><strong>Q7: 成果連動の透明性は？</strong></p>
+                <p>A: 計測方法（対象キーワード群・順位算出・CVカウント）を仕様書で公開。第三者監査も受け入れ。</p>
+            </div>
+            
+            <h3 style="margin-top: 30px;">付録D：営業用の即実用テンプレ（提案書の肝）</h3>
+            <div class="highlight-box">
+                <ul>
+                    <li><strong>導入後30/60/90日プラン</strong>（チェックリスト＋週次タスク表）</li>
+                    <li><strong>レビュー返信テンプレ（医療法監修済み）</strong>：初診/再診/クレーム/高評価用</li>
+                    <li><strong>医院向け周知ポスター/QR</strong>（口コミ導線／臨時情報の連絡先）</li>
+                    <li><strong>月次レポ雛形</strong>（KPIの読み方付き：院内ミーティングでそのまま使用可）</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
