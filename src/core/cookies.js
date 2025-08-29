@@ -31,7 +31,10 @@ export function verify_value(signed, secret) {
   const value = signed.slice(0, idx);
   const sig = signed.slice(idx + 1);
   const expected = hmac(value, secret);
-  if (crypto.timingSafeEqual(encoder.encode(sig), encoder.encode(expected))) return value;
+  const a = encoder.encode(sig);
+  const b = encoder.encode(expected);
+  if (a.length !== b.length) return null;
+  if (crypto.timingSafeEqual(a, b)) return value;
   return null;
 }
 
@@ -49,4 +52,3 @@ export function set_cookie(res, name, value, opts = {}) {
 export function clear_cookie(res, name) {
   set_cookie(res, name, '', { maxAge: 0, path: '/' });
 }
-

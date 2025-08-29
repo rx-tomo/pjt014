@@ -15,6 +15,7 @@ import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
 import { create_change_request, list_change_requests, set_status, get_change_request, set_checks } from './change_requests_store.js';
+import { check_changes } from './compliance_stub.js';
 
 const DEFAULT_PORT = Number(process.env.PORT || 3014);
 // localhostでも外部IFでも到達できるようデフォルトは0.0.0.0
@@ -284,10 +285,29 @@ export function create_server() {
         return json(res, 200, { ok: true, item: loc });
       }
 
-      // API: change requests (in-memory)
+      // API: change requests (in-memory + optional Supabase)
+      function supabaseEnabled() {
+        return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+      }
+      async function sbFetch(pathname, init) {
+        const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+        const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+        const headers = Object.assign({}, init?.headers || {}, { apikey: key, Authorization: `Bearer ${key}` });
+        return fetch(base + pathname, Object.assign({}, init, { headers }));
+      }
       if (method === 'GET' && pathname === '/api/change-requests') {
-        const all = list_change_requests();
         const locId = query?.location_id || null;
+        if (supabaseEnabled()) {
+          try {
+            const params = new URLSearchParams();
+            if (locId) params.set('location_id', `eq.${encodeURIComponent(locId)}`);
+            const qs = params.toString();
+            const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''));
+            const arr = r.ok ? await r.json() : [];
+            return json(res, 200, { ok: true, items: arr });
+          } catch {}
+        }
+        const all = list_change_requests();
         const items = locId ? all.filter(r => (r.payload?.location_id||null) === locId) : all;
         return json(res, 200, { ok: true, items });
       }
@@ -304,6 +324,16 @@ export function create_server() {
               photo_url: body?.photo_url ?? null,
             },
           });
+          // Optional: persist to Supabase
+          if (supabaseEnabled()) {
+            try {
+              await sbFetch('/rest/v1/owner_change_requests', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+                body: JSON.stringify([{ location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status }]),
+              });
+            } catch {}
+          }
           return json(res, 201, { ok: true, id: rec.id });
         } catch (e) {
           return json(res, 400, { ok: false, error: 'invalid_json' });
@@ -322,6 +352,22 @@ export function create_server() {
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
+      if (method === 'POST' && pathname === '/api/compliance-check') {
+        try {
+          const body = await read_json();
+          const changes = body?.changes || {};
+          const results = check_changes(changes);
+          return json(res, 200, { ok: true, results });
+        } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
+      }
+      if (method === 'POST' && pathname === '/api/compliance-check') {
+        try {
+          const body = await read_json();
+          const changes = body?.changes || {};
+          const results = check_changes(changes);
+          return json(res, 200, { ok: true, results });
+        } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
+      }
       if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/checks')) {
         try {
           const id = pathname.split('/')[3];
@@ -330,6 +376,14 @@ export function create_server() {
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
+      }
+
+      if (method === 'GET' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/compliance')) {
+        const id = pathname.split('/')[3];
+        const rec = get_change_request(id || '');
+        if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+        const results = check_changes(rec?.payload?.changes || {});
+        return json(res, 200, { ok: true, results });
       }
 
       if (method === 'GET' && pathname === '/jobs') {
@@ -431,7 +485,8 @@ export function create_server() {
                 <label>電話<input name="phone" value="${loc.phone||''}" /></label>
                 <label>営業時間<input name="hours" value="${loc.hours||''}" /></label>
                 <label>URL<input name="url" value="${loc.url||''}" /></label>
-                <label>説明<textarea name="description" rows="3"></textarea></label>
+                <label>説明<textarea name="description" rows="3" id="desc"></textarea></label>
+                <div id="warn" style="color:#900"></div>
                 <label>写真URL<input name="photo_url" /></label>
                 <button type="submit">送信</button>
                 <span id="msg"></span>
@@ -458,9 +513,19 @@ export function create_server() {
               const tb = document.getElementById('reqs'); tb.innerHTML='';
               const j = await (await fetch('/api/change-requests?location_id=${loc.id}')).json();
               (j.items||[]).forEach(r=>{ const tr=document.createElement('tr');
-                tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||'')+'</td><td>'+r.status+'</td><td>'+r.created_at+'</td>';
+                tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+(r.status||'')+'</td><td>'+(r.created_at||'')+'</td>';
                 tb.appendChild(tr);
               });
+            }
+            async function liveCheck(){
+              const desc = document.getElementById('desc').value||'';
+              try{
+                const r = await fetch('/api/compliance-check', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ changes: { description: desc } })});
+                const j = await r.json();
+                const el = document.getElementById('warn');
+                const hits = (j.results && j.results.description) ? j.results.description : [];
+                el.innerHTML = hits.length? ('自動チェック: '+hits.map(h=>h.label+':\"'+h.match+'\"').join(', ')) : '';
+              }catch{ /* noop */ }
             }
             document.getElementById('req').onsubmit = async (e)=>{
               e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
@@ -469,6 +534,8 @@ export function create_server() {
               if(j.ok){ m.textContent='送信しました: '+j.id; loadRequests(); } else { m.textContent='送信失敗'; }
             };
             loadStatus(); loadRequests();
+            document.getElementById('desc').addEventListener('input', liveCheck);
+            liveCheck();
           </script>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());
@@ -500,6 +567,8 @@ export function create_server() {
           <h1>レビュー（stub） - ${rec.payload?.location_id||''}</h1>
           <p style="color:#555">対象: レビュアー/承認者。できること: チェックリスト保存、状態更新（承認/差戻し）。</p>
           <pre style="background:#f7f7f7;padding:8px;border:1px solid #eee">${JSON.stringify(rec.payload, null, 2)}</pre>
+          <h2>コンプライアンス（自動チェック・簡易）</h2>
+          <div id="auto"></div>
           <h2>チェックリスト</h2>
           <form id="checks">
             <label><input type="checkbox" name="no_overclaim"> 過大表現なし</label>
@@ -514,6 +583,19 @@ export function create_server() {
             <button id="needs_fix">差戻し（needs_fix）</button>
           </p>
           <script>
+            async function loadAuto(){
+              try{
+                const j = await (await fetch('/api/change-requests/${id}/compliance')).json();
+                const el = document.getElementById('auto');
+                if(!j.ok){ el.textContent='自動チェックの取得に失敗しました'; return; }
+                const res = j.results||{};
+                const rows = [];
+                if(res.description && res.description.length){
+                  rows.push('<b>説明</b>: '+res.description.map(h=>h.label+':"'+h.match+'"').join(', '));
+                }
+                el.innerHTML = rows.length? rows.map(r=>'<div style="color:#900">'+r+'</div>').join('') : '<div style="color:#090">自動チェック: 問題なし</div>';
+              }catch{ document.getElementById('auto').textContent='自動チェックエラー'; }
+            }
             document.getElementById('checks').onsubmit = async (e)=>{
               e.preventDefault(); const f=new FormData(e.target); const obj={}; for(const [k,v] of f.entries()){ obj[k]=true; }
               await fetch('/api/change-requests/${id}/checks', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
@@ -525,6 +607,7 @@ export function create_server() {
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
+            loadAuto();
           </script>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());
