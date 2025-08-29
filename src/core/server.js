@@ -284,26 +284,45 @@ export function create_server() {
           <dt>営業時間</dt><dd>${loc.hours||''}</dd>
           <dt>URL</dt><dd><a href="${loc.url||'#'}" target="_blank" rel="noreferrer">${loc.url||''}</a></dd>
         </dl>
-        <p style="margin-top:16px"><a href="/owner">変更依頼を出す（オーナーポータル）</a></p>
+        <p style="margin-top:16px"><a href="/owner/${loc.id}">変更依頼を出す（オーナーポータル）</a></p>
         </body></html>`;
         return html(res, 200, page);
       }
 
       if (method === 'GET' && pathname === '/owner') {
+        // 選択画面（複数ロケーションを持つオーナー向け）
+        const items = get_locations(); // TODO: 認可後は所属ロケーションに限定
+        const li = items.map(it=>`<li><a href="/owner/${it.id}">${it.name}</a> - ${it.address||''}</li>`).join('');
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
+          <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
+        </head><body>
+          <h1>オーナーポータル：ロケーション選択</h1>
+          <p>編集したいロケーションを選択してください。</p>
+          <ul>${li}</ul>
+        </body></html>`;
+        return html(res, 200, page);
+      }
+
+      if (method === 'GET' && pathname.startsWith('/owner/')) {
+        const id = pathname.split('/').pop();
+        const loc = get_location(id || '');
+        if (!loc) return html(res, 404, '<!doctype html><html><body><h1>Not Found</h1></body></html>');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal (stub)</title>
           <style>
             body{font-family:system-ui;padding:20px;}
             .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
             label{display:block;margin-top:8px}
-            input,textarea,select{width:100%;padding:6px}
+            input,textarea{width:100%;padding:6px}
             .card{border:1px solid #ddd;border-radius:8px;padding:12px}
             .ok{color:#090}
             .err{color:#900}
             table{width:100%;border-collapse:collapse}
             th,td{border:1px solid #ddd;padding:6px;text-align:left}
+            a{color:#06c}
           </style>
         </head><body>
-          <h1>オーナーポータル（最小）</h1>
+          <p><a href="/owner">← ロケーション選択へ</a></p>
+          <h1>オーナーポータル（最小） - ${loc.name}</h1>
           <div class="grid">
             <div class="card">
               <h2>ステータス/KPI（stub）</h2>
@@ -313,10 +332,10 @@ export function create_server() {
             <div class="card">
               <h2>変更依頼フォーム（限定項目）</h2>
               <form id="req">
-                <label>ロケーション<select name="location_id" id="loc"></select></label>
-                <label>電話<input name="phone" /></label>
-                <label>営業時間<input name="hours" /></label>
-                <label>URL<input name="url" /></label>
+                <input type="hidden" name="location_id" value="${loc.id}" />
+                <label>電話<input name="phone" value="${loc.phone||''}" /></label>
+                <label>営業時間<input name="hours" value="${loc.hours||''}" /></label>
+                <label>URL<input name="url" value="${loc.url||''}" /></label>
                 <label>説明<textarea name="description" rows="3"></textarea></label>
                 <label>写真URL<input name="photo_url" /></label>
                 <button type="submit">送信</button>
@@ -340,11 +359,6 @@ export function create_server() {
                 el.className = authed? 'ok':'err';
               }catch{ document.getElementById('status').textContent='status error'; }
             }
-            async function loadLocations(){
-              const sel = document.getElementById('loc');
-              const j = await (await fetch('/api/locations')).json();
-              (j.items||[]).forEach(it=>{ const o=document.createElement('option'); o.value=it.id; o.textContent=it.name; sel.appendChild(o); });
-            }
             async function loadRequests(){
               const tb = document.getElementById('reqs'); tb.innerHTML='';
               const j = await (await fetch('/api/change-requests')).json();
@@ -359,7 +373,7 @@ export function create_server() {
               const j = await r.json(); const m = document.getElementById('msg');
               if(j.ok){ m.textContent='送信しました: '+j.id; loadRequests(); } else { m.textContent='送信失敗'; }
             };
-            loadStatus(); loadLocations(); loadRequests();
+            loadStatus(); loadRequests();
           </script>
         </body></html>`;
         return html(res, 200, page);
