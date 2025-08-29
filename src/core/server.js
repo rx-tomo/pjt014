@@ -311,9 +311,39 @@ export function create_server() {
         const items = locId ? all.filter(r => (r.payload?.location_id||null) === locId) : all;
         return json(res, 200, { ok: true, items });
       }
+      if (method === 'GET' && pathname.startsWith('/api/change-requests/')) {
+        const id = pathname.split('/').pop();
+        if (!id) return json(res, 400, { ok: false, error: 'bad_request' });
+        if (supabaseEnabled()) {
+          try {
+            const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`);
+            if (r.ok) {
+              const arr = await r.json();
+              const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
+              if (!item) return json(res, 404, { ok: false, error: 'not_found' });
+              return json(res, 200, { ok: true, item });
+            }
+          } catch {}
+        }
+        const rec = get_change_request(id);
+        if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+        const item = {
+          id: rec.id,
+          location_id: rec.payload?.location_id || null,
+          changes: rec.payload?.changes || {},
+          status: rec.status,
+          created_at: rec.created_at,
+          owner_signoff: Boolean(rec.payload?.owner_signoff || false),
+          checks: rec.checks || {},
+        };
+        return json(res, 200, { ok: true, item });
+      }
       if (method === 'POST' && pathname === '/api/change-requests') {
         try {
           const body = await read_json();
+          if (!body || typeof body.location_id !== 'string' || !body.location_id) {
+            return json(res, 400, { ok: false, error: 'invalid_location_id' });
+          }
           const rec = create_change_request({
             location_id: body?.location_id || null,
             changes: {
@@ -323,6 +353,7 @@ export function create_server() {
               description: body?.description ?? null,
               photo_url: body?.photo_url ?? null,
             },
+            owner_signoff: Boolean(body?.owner_signoff || false),
           });
           // Optional: persist to Supabase
           if (supabaseEnabled()) {
@@ -330,7 +361,7 @@ export function create_server() {
               await sbFetch('/rest/v1/owner_change_requests', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-                body: JSON.stringify([{ location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status }]),
+                body: JSON.stringify([{ id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false) }]),
               });
             } catch {}
           }
@@ -349,15 +380,17 @@ export function create_server() {
           }
           const rec = set_status(id, st);
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+          // Optional: persist to Supabase
+          if (supabaseEnabled()) {
+            try {
+              await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+                body: JSON.stringify({ status: st }),
+              });
+            } catch {}
+          }
           return json(res, 200, { ok: true });
-        } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
-      }
-      if (method === 'POST' && pathname === '/api/compliance-check') {
-        try {
-          const body = await read_json();
-          const changes = body?.changes || {};
-          const results = check_changes(changes);
-          return json(res, 200, { ok: true, results });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
       if (method === 'POST' && pathname === '/api/compliance-check') {
@@ -374,6 +407,16 @@ export function create_server() {
           const body = await read_json();
           const rec = set_checks(id, body || {});
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+          // Optional: persist to Supabase
+          if (supabaseEnabled()) {
+            try {
+              await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+                body: JSON.stringify({ checks: body || {} }),
+              });
+            } catch {}
+          }
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
@@ -479,18 +522,19 @@ export function create_server() {
               <ul id="kpi"><li>Profile completeness: stub</li><li>Token: see Dashboard</li></ul>
             </div>
             <div class="card">
-              <h2>変更依頼フォーム（限定項目）</h2>
-              <form id="req">
-                <input type="hidden" name="location_id" value="${loc.id}" />
-                <label>電話<input name="phone" value="${loc.phone||''}" /></label>
-                <label>営業時間<input name="hours" value="${loc.hours||''}" /></label>
-                <label>URL<input name="url" value="${loc.url||''}" /></label>
-                <label>説明<textarea name="description" rows="3" id="desc"></textarea></label>
-                <div id="warn" style="color:#900"></div>
-                <label>写真URL<input name="photo_url" /></label>
-                <button type="submit">送信</button>
-                <span id="msg"></span>
-              </form>
+          <h2>変更依頼フォーム（限定項目）</h2>
+          <form id="req">
+            <input type="hidden" name="location_id" value="${loc.id}" />
+            <label>電話<input name="phone" value="${loc.phone||''}" /></label>
+            <label>営業時間<input name="hours" value="${loc.hours||''}" /></label>
+            <label>URL<input name="url" value="${loc.url||''}" /></label>
+            <label>説明<textarea name="description" rows="3" id="desc"></textarea></label>
+            <div id="warn" style="color:#900"></div>
+            <label>写真URL<input name="photo_url" /></label>
+            <label><input type="checkbox" name="owner_signoff" value="1"> オーナーによる内容確認（必須）</label>
+            <button type="submit">送信</button>
+            <span id="msg"></span>
+          </form>
             </div>
           </div>
           <div class="card" style="margin-top:16px">
@@ -529,6 +573,7 @@ export function create_server() {
             }
             document.getElementById('req').onsubmit = async (e)=>{
               e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
+              if (obj.owner_signoff) obj.owner_signoff = true; else obj.owner_signoff = false;
               const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
               const j = await r.json(); const m = document.getElementById('msg');
               if(j.ok){ m.textContent='送信しました: '+j.id; loadRequests(); } else { m.textContent='送信失敗'; }
@@ -542,31 +587,41 @@ export function create_server() {
       }
 
       if (method === 'GET' && pathname === '/review') {
-        const items = list_change_requests();
-        const rows = items.map(r=>`<tr><td><a href="/review/${r.id}">${r.id}</a></td><td>${r.payload?.location_id||''}</td><td>${r.status}</td><td>${r.created_at}</td></tr>`).join('');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
           <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px}</style>
         </head><body>
           ${header_nav()}
-          <h1>承認キュー（stub）</h1>
+          <h1>承認キュー</h1>
           <p style="color:#555">対象: オペレーター/承認者。できること: 依頼のレビュー/承認/差戻し。</p>
-          <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table>
+          <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"></tbody></table>
+          <script>
+            async function load(){
+              const j = await (await fetch('/api/change-requests')).json();
+              const tb = document.getElementById('rows'); tb.innerHTML='';
+              (j.items||[]).forEach(r=>{
+                const tr = document.createElement('tr');
+                const id = r.id; const loc = (r.location_id||r.payload?.location_id||'');
+                const st = (r.status||''); const created = (r.created_at||'');
+                tr.innerHTML = '<td><a href="/review/'+id+'">'+id+'</a></td><td>'+loc+'</td><td>'+st+'</td><td>'+created+'</td>';
+                tb.appendChild(tr);
+              });
+            }
+            load();
+          </script>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());
       }
 
       if (method === 'GET' && pathname.startsWith('/review/')) {
         const id = pathname.split('/').pop();
-        const rec = get_change_request(id || '');
-        if (!rec) return html(res, 404, '<!doctype html><html><body><h1>Not Found</h1></body></html>');
-        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review ${rec.id}</title>
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review ${id}</title>
           <style>body{font-family:system-ui;padding:20px} label{display:block;margin:6px 0}</style>
         </head><body>
           ${header_nav()}
           <p><a href="/review">← 承認キュー</a></p>
-          <h1>レビュー（stub） - ${rec.payload?.location_id||''}</h1>
+          <h1>レビュー（stub） - <span id="loc"></span></h1>
           <p style="color:#555">対象: レビュアー/承認者。できること: チェックリスト保存、状態更新（承認/差戻し）。</p>
-          <pre style="background:#f7f7f7;padding:8px;border:1px solid #eee">${JSON.stringify(rec.payload, null, 2)}</pre>
+          <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee"></pre>
           <h2>コンプライアンス（自動チェック・簡易）</h2>
           <div id="auto"></div>
           <h2>チェックリスト</h2>
@@ -578,11 +633,28 @@ export function create_server() {
             <button type="submit">チェック保存</button>
           </form>
           <p id="msg"></p>
+          <p id="owner"></p>
           <p>
             <button id="approve">承認（approved）</button>
             <button id="needs_fix">差戻し（needs_fix）</button>
           </p>
           <script>
+            async function loadItem(){
+              const j = await (await fetch('/api/change-requests/${id}')).json();
+              if(!j.ok){ document.getElementById('payload').textContent = 'not found'; return; }
+              const item = j.item;
+              document.getElementById('loc').textContent = item.location_id || '';
+              document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
+              // prefill checks
+              try{
+                const ch = item.checks||{}; const f = document.getElementById('checks');
+                for(const k of Object.keys(ch)){
+                  const el = f.querySelector('input[name="'+k+'"]'); if(el) el.checked = Boolean(ch[k]);
+                }
+              }catch{}
+              // show owner signoff
+              document.getElementById('owner').textContent = 'オーナー確認: ' + (item.owner_signoff ? '済' : '未');
+            }
             async function loadAuto(){
               try{
                 const j = await (await fetch('/api/change-requests/${id}/compliance')).json();
@@ -607,7 +679,7 @@ export function create_server() {
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
-            loadAuto();
+            loadItem(); loadAuto();
           </script>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());

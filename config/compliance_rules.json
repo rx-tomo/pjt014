@@ -1,0 +1,18 @@
+[
+  {
+    "key": "overclaim",
+    "label": "過大表現",
+    "patterns": ["絶対", "完全に治る", "No\\.?1", "最高", "最安"]
+  },
+  {
+    "key": "privacy",
+    "label": "個人情報",
+    "patterns": ["氏名", "電話番号", "住所"]
+  },
+  {
+    "key": "before_after",
+    "label": "ビフォーアフター",
+    "patterns": ["ビフォー", "アフター", "before after"]
+  }
+]
+
