@@ -325,7 +325,9 @@ export function create_server() {
             const qs = params.toString();
             const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''), { method: 'GET' }, 600);
             const arr = r.ok ? await r.json() : [];
-            return json(res, 200, { ok: true, items: arr });
+            if (Array.isArray(arr) && arr.length) {
+              return json(res, 200, { ok: true, items: arr });
+            }
           } catch {}
         }
         const all = list_change_requests();
@@ -341,8 +343,7 @@ export function create_server() {
             if (r.ok) {
               const arr = await r.json();
               const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
-              if (!item) return json(res, 404, { ok: false, error: 'not_found' });
-              return json(res, 200, { ok: true, item });
+              if (item) return json(res, 200, { ok: true, item });
             }
           } catch {}
         }
