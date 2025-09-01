@@ -1,0 +1,97 @@
+session: "2025-09-01/am-1"
+who: "agent"
+milestone: "03. Compliance UI & Review Flow"
+issues: [26]
+branch: "main"
+env:
+  port: 3014
+  node: 22
+  supabase:
+    enabled: "optional"
+    vars: ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
+  dev_reload: 1
+
+refs:
+  repo: "https://github.com/rx-tomo/pjt014"
+  issues_board: "https://github.com/rx-tomo/pjt014/issues"
+  milestones: "https://github.com/rx-tomo/pjt014/milestones"
+  docs:
+    gcp_oauth: "docs/gcp-oauth-setup.md"
+    agents: "AGENTS.md"
+    compliance: "docs/product/COMPLIANCE.md"
+  external:
+    supabase_cli: "https://supabase.com/docs/guides/cli"
+    google_oauth: "https://console.cloud.google.com/apis/credentials"
+
+urls:
+  home: "http://localhost:3014/"
+  oauth_status: "http://localhost:3014/oauth/status"
+  oauth_start: "http://localhost:3014/api/gbp/oauth"
+  jobs_ui: "http://localhost:3014/jobs"
+  locations: "http://localhost:3014/locations"
+  owner_select: "http://localhost:3014/owner"
+  review_queue: "http://localhost:3014/review"
+
+commands:
+  setup: ["corepack enable", "nvm use 22", "npm i"]
+  dev: ["make dev"]
+  test: ["make test"]
+  lint: ["make lint"]
+  format: ["make format"]
+  db_start: ["make supabase-start"]
+  db_reset: ["make db-reset"]
+  worker: ["make worker", "make worker-refresh"]
+
+api_endpoints:
+  - GET /api/locations
+  - GET /api/locations/:id
+  - GET /api/change-requests
+  - GET /api/change-requests/:id
+  - POST /api/change-requests
+  - POST /api/change-requests/:id/status
+  - POST /api/change-requests/:id/checks
+  - POST /api/compliance-check
+  - GET /api/change-requests/:id/compliance
+
+feature_flags:
+  dev_reload_sse: "NODE_ENV!=production and DEV_RELOAD!=0 (connected after window load)"
+
+changes:
+  - update: src/core/server.js (Supabase REST fetchに短いタイムアウト導入、POSTは非同期化)
+  - update: src/core/server.js (GET系は600msでタイムアウト・空結果時はスタブへフォールバック)
+  - update: src/core/server.js (devリロードSSEをwindow load後に接続、POST JSON読込でaborted対応)
+  - update: src/core/server.js (HTTPリクエスト計測ログ追加)
+  - update: src/core/server.js (UIガイダンス文言をHome/Locations/Owner/Reviewに追記)
+
+verify:
+  - Homeが表示され、推奨手順ガイドが見える
+  - Locations一覧→任意の詳細→Owner Portalリンクが機能
+  - Owner編集: 入力→同意チェック→送信で201/IDが表示される
+  - 送信直後、Ownerの依頼一覧に新規IDが表示される（Supabase未反映時でもスタブで表示）
+  - Review Queueに新規依頼が表示され、詳細で内容/owner_signoffが確認できる
+  - Review詳細: チェック保存→"保存しました"、承認/差戻しで状態更新メッセージ
+  - ネットワーク不安定時もUIがハングしない（POSTは即応答、GETは<=~600msで返る）
+  - サーバログに [http] 行が出力され、所要時間が記録される
+
+status: "running"
+
+next:
+  - auth/RLS強化: オーナーは自ロケーションのみ操作可能に（RLS + セッション紐付け）
+  - 送信の整合性: Supabase保存の確定/再送キュー導入（非同期保存のリトライ・再同期）
+  - 入力バリデーション: phone/URL形式チェック、エラー文言の改善
+  - 自動チェックの拡充: URL/画像/説明のNG検知を強化（config/compliance_rules.json）
+  - テスト整備: API/画面の自動テスト追加（node --test、ルート別）
+  - レビューUI改善: フィルタ/ソート、in_review遷移、日付の人間可読表示
+  - CI運用: mainへのsquash merge徹底、pre-pushテスト/リンタ実行
+
+risks:
+  - 非同期保存により一時的にメモリとSupabaseの不整合が起こりうる
+  - メモリストアはプロセス再起動で揮発（ローカル検証前提）
+  - Supabaseのタイムアウト短縮によりデータ取得がスタブに偏る可能性
+  - SSE接続は開発時のみ有効だが、ブラウザのスピナー表示に影響しうる
+
+notes: |
+  - Supabaseは任意。未設定でも全フロー（スタブ保存/表示）は動作します。
+  - 送信・状態更新・チェック保存はサーバ側でfire-and-forget保存を行い、応答は即返却します。
+  - GETは最大~600msでフォールバックし、体感速度を優先しています。
+  - 画面内ガイダンスを更新済み（流れの把握に利用してください）。
