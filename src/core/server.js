@@ -43,7 +43,7 @@ function json(res, status, data) {
 
   function dev_reload_script() {
     if (!DEV_ENABLED) return '';
-    return `\n<script>\n(()=>{\n  const connect = ()=>{ try{ const es = new EventSource('/__dev/reload'); es.onmessage = (e)=>{ if(e.data==='reload'){ location.reload(); } }; }catch(e){} };\n  if (document.readyState === 'complete') { setTimeout(connect, 0); } else { window.addEventListener('load', connect, { once: true }); }\n})();\n</script>\n`;
+    return `\n<script>\n(()=>{\n  let es=null;\n  const close=()=>{ try{ es && es.close(); }catch(_){} };\n  const connect = ()=>{ try{ es = new EventSource('/__dev/reload'); es.onmessage = (e)=>{ if(e.data==='reload'){ location.reload(); } }; }catch(e){} };\n  if (document.readyState === 'complete') { setTimeout(connect, 0); } else { window.addEventListener('load', connect, { once: true }); }\n  window.addEventListener('pagehide', close, { once: true });\n  window.addEventListener('beforeunload', close, { once: true });\n  document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ close(); } });\n})();\n</script>\n`;
   }
 
   function dev_broadcast_reload() {
