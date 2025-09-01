@@ -88,6 +88,7 @@ function json(res, status, data) {
 
 export function create_server() {
   const server = http.createServer(async (req, res) => {
+    const t0 = Date.now();
     const { pathname, query } = parse(req.url || '/', true);
     const method = (req.method || 'GET').toUpperCase();
 
@@ -101,6 +102,11 @@ export function create_server() {
     }
 
     try {
+      // basic request timing log
+      res.on('finish', () => {
+        const ms = Date.now() - t0;
+        try { console.log(`[http] ${method} ${pathname} ${res.statusCode} ${ms}ms`); } catch {}
+      });
       // Dev SSE endpoint
       if (DEV_ENABLED && method === 'GET' && pathname === '/__dev/reload') {
         res.writeHead(200, {
@@ -265,7 +271,7 @@ export function create_server() {
         try {
           if (supabaseEnabled() && email) {
             const qs = `email=eq.${encodeURIComponent(email)}&select=created_at,expires_at&order=created_at.desc&limit=1`;
-            const r = await sbFetch(`/rest/v1/oauth_tokens_secure?${qs}`, { method: 'GET' }, 1200);
+            const r = await sbFetch(`/rest/v1/oauth_tokens_secure?${qs}`, { method: 'GET' }, 600);
             if (r && r.ok) {
               const arr = await r.json();
               if (arr && arr.length) {
@@ -317,7 +323,7 @@ export function create_server() {
             const params = new URLSearchParams();
             if (locId) params.set('location_id', `eq.${encodeURIComponent(locId)}`);
             const qs = params.toString();
-            const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''));
+            const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''), { method: 'GET' }, 600);
             const arr = r.ok ? await r.json() : [];
             return json(res, 200, { ok: true, items: arr });
           } catch {}
@@ -331,7 +337,7 @@ export function create_server() {
         if (!id) return json(res, 400, { ok: false, error: 'bad_request' });
         if (supabaseEnabled()) {
           try {
-            const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`);
+            const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, { method: 'GET' }, 600);
             if (r.ok) {
               const arr = await r.json();
               const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
