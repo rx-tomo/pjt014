@@ -14,9 +14,6 @@ const DEMO_MAP = new Map(
 export function get_owned_location_ids(email) {
   if (!email || typeof email !== 'string') return [];
   if (DEMO_MAP.has(email)) return DEMO_MAP.get(email) || [];
-  // default fallback: first 2
-  return get_locations()
-    .slice(0, 2)
-    .map((l) => l.id);
+  // デフォルトは空（明示割当がなければ編集不可）
+  return [];
 }
-

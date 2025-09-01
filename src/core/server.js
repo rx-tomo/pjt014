@@ -346,8 +346,85 @@ export function create_server() {
           clearTimeout(t);
         }
       }
+
+      // --- Outbox: 非同期保存の再送キュー（メモリ） ---
+      const OUTBOX = globalThis.__pjt014_outbox || (globalThis.__pjt014_outbox = []);
+      function enqueueOutbox(task) {
+        const now = Date.now();
+        OUTBOX.push({ ...task, attempts: 0, nextAt: now });
+      }
+      let OUTBOX_TIMER = globalThis.__pjt014_outbox_timer || null;
+      async function processOutboxTick() {
+        if (!supabaseEnabled()) return;
+        const now = Date.now();
+        for (const task of OUTBOX.slice()) {
+          if (task.nextAt > now) continue;
+          try {
+            if (task.type === 'insert_change_request') {
+              const payload = [{
+                id: task.data.id,
+                location_id: task.data.location_id,
+                changes: task.data.changes,
+                status: task.data.status,
+                owner_signoff: task.data.owner_signoff,
+              }];
+              const r = await sbFetch('/rest/v1/owner_change_requests', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+                body: JSON.stringify(payload),
+              }, 1500);
+              if (r.ok || r.status === 409) {
+                OUTBOX.splice(OUTBOX.indexOf(task), 1);
+                continue;
+              }
+              throw new Error('persist_failed:'+r.status);
+            }
+            if (task.type === 'patch_change_request') {
+              const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(task.id)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+                body: JSON.stringify(task.patch || {}),
+              }, 1500);
+              if (r.ok) {
+                OUTBOX.splice(OUTBOX.indexOf(task), 1);
+                continue;
+              }
+              throw new Error('patch_failed:'+r.status);
+            }
+          } catch (e) {
+            task.attempts += 1;
+            const backoff = Math.min(60000, 1000 * Math.pow(2, Math.min(8, task.attempts - 1)));
+            task.nextAt = Date.now() + backoff;
+            console.warn('[outbox] retry in', backoff, 'ms', e && e.message ? e.message : e);
+          }
+        }
+      }
+      function ensureOutboxTimer() {
+        if (!OUTBOX_TIMER) {
+          OUTBOX_TIMER = globalThis.__pjt014_outbox_timer = setInterval(processOutboxTick, 1000);
+        }
+      }
+      ensureOutboxTimer();
       if (method === 'GET' && pathname === '/api/change-requests') {
         const locId = query?.location_id || null;
+        if (locId) {
+          // 所有者のみ該当ロケーションの一覧にアクセス可能
+          let session = null;
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const secret = process.env.APP_SECRET || 'dev_secret';
+            const sidSigned = parsed.sid;
+            if (sidSigned) {
+              const sid = verify_value(sidSigned, secret);
+              if (sid) session = get_session(sid);
+            }
+          } catch {}
+          const email = session?.user?.email || null;
+          if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+          const allowed = new Set(get_owned_location_ids(email));
+          if (!allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+        }
         if (supabaseEnabled()) {
           try {
             const params = new URLSearchParams();
@@ -443,16 +520,8 @@ export function create_server() {
             },
             owner_signoff: Boolean(body?.owner_signoff || false),
           });
-          // Optional: persist to Supabase (non-blocking)
-          if (supabaseEnabled()) {
-            try {
-              sbFetch('/rest/v1/owner_change_requests', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-                body: JSON.stringify([{ id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false) }]),
-              }, 1500).catch(()=>{});
-            } catch {}
-          }
+          // Outbox: 後続でSupabaseに非同期保存（リトライあり）
+          enqueueOutbox({ type: 'insert_change_request', data: { id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false) } });
           return json(res, 201, { ok: true, id: rec.id });
         } catch (e) {
           return json(res, 400, { ok: false, error: 'invalid_json' });
@@ -468,16 +537,8 @@ export function create_server() {
           }
           const rec = set_status(id, st);
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
-          // Optional: persist to Supabase (non-blocking)
-          if (supabaseEnabled()) {
-            try {
-              sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
-                method: 'PATCH',
-                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-                body: JSON.stringify({ status: st }),
-              }, 1500).catch(()=>{});
-            } catch {}
-          }
+          // Outbox: 状態更新を非同期保存
+          enqueueOutbox({ type: 'patch_change_request', id, patch: { status: st } });
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
@@ -495,16 +556,8 @@ export function create_server() {
           const body = await read_json();
           const rec = set_checks(id, body || {});
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
-          // Optional: persist to Supabase (non-blocking)
-          if (supabaseEnabled()) {
-            try {
-              sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
-                method: 'PATCH',
-                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-                body: JSON.stringify({ checks: body || {} }),
-              }, 1500).catch(()=>{});
-            } catch {}
-          }
+          // Outbox: チェック保存を非同期保存
+          enqueueOutbox({ type: 'patch_change_request', id, patch: { checks: body || {} } });
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
@@ -532,6 +585,19 @@ export function create_server() {
 
       if (method === 'GET' && pathname === '/jobs') {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body>${header_nav()}<h1>Jobs UI (placeholder)</h1></body></html>`;
+        return html(res, 200, page + dev_reload_script());
+      }
+
+      if (method === 'GET' && pathname === '/login') {
+        const page = `<!doctype html><html><head><meta charset="utf-8"><title>Sign In</title>
+          <style>body{font-family:system-ui;padding:24px} a.button{display:inline-block;padding:8px 12px;border:1px solid #333;border-radius:6px;text-decoration:none}</style>
+        </head><body>
+          ${header_nav()}
+          <h1>サインインが必要です</h1>
+          <p>オーナーポータルを利用するには、Googleアカウントでログインしてください。</p>
+          <p><a class="button" href="/api/gbp/oauth?provider=google">Googleでログイン</a></p>
+          <p style="color:#555">開発中: ログイン後は自分が担当するロケーションのみ表示されます。</p>
+        </body></html>`;
         return html(res, 200, page + dev_reload_script());
       }
 
@@ -586,7 +652,7 @@ export function create_server() {
 
       if (method === 'GET' && pathname === '/owner') {
         // 選択画面（複数ロケーションを持つオーナー向け）
-        // 認可: セッションのメールに基づき所属ロケーションを限定
+        // 認可: 未サインインならログインページへ
         let session = null;
         try {
           const cookies = req.headers.cookie || '';
@@ -599,18 +665,17 @@ export function create_server() {
           }
         } catch {}
         const email = session?.user?.email || null;
+        if (!email) { res.statusCode = 302; res.setHeader('location', '/login'); return res.end(); }
         const allowed = email ? new Set(get_owned_location_ids(email)) : new Set();
         const source = get_locations();
-        const items = email ? source.filter(it => allowed.has(it.id)) : [];
-        const body = email ? items : source; // 未サインイン時は参照のみのデモとして全件表示
-        const li = body.map(it=>`<li><a href="/owner/${it.id}">${it.name}</a> - ${it.address||''}</li>`).join('');
+        const items = source.filter(it => allowed.has(it.id));
+        const li = items.map(it=>`<li><a href="/owner/${it.id}">${it.name}</a> - ${it.address||''}</li>`).join('');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
           <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
         </head><body>
           ${header_nav()}
           <h1>オーナーポータル：ロケーション選択</h1>
           <p style="color:#555">対象: オーナー。できること: 編集対象のロケーションを選択。</p>
-          ${email ? '' : '<div style="color:#900;margin:8px 0">編集するにはGoogleでサインインしてください（Homeから開始）。現在は閲覧のみ可能です。</div>'}
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>：変更したいロケーションを選び、次の画面で編集内容を入力して送信します。
           </div>
@@ -638,10 +703,10 @@ export function create_server() {
                 return html(res, 403, '<!doctype html><html><body><h1>Forbidden</h1><p>このロケーションを編集する権限がありません。</p></body></html>');
               }
             } else {
-              return html(res, 401, '<!doctype html><html><body><h1>Unauthorized</h1><p>編集にはサインインが必要です。</p></body></html>');
+              res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
             }
           } else {
-            return html(res, 401, '<!doctype html><html><body><h1>Unauthorized</h1><p>編集にはサインインが必要です。</p></body></html>');
+            res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
           }
         } catch {}
         const loc = get_location(id || '');
