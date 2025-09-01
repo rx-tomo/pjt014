@@ -252,12 +252,10 @@ export function create_server() {
         // Supabaseの最終保存を参照
         let persistence = { last_saved_at: null, last_expires_at: null };
         try {
-          const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-          const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-          if (base && key && email) {
-            const url = `${base}/rest/v1/oauth_tokens_secure?email=eq.${encodeURIComponent(email)}&select=created_at,expires_at&order=created_at.desc&limit=1`;
-            const r = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
-            if (r.ok) {
+          if (supabaseEnabled() && email) {
+            const qs = `email=eq.${encodeURIComponent(email)}&select=created_at,expires_at&order=created_at.desc&limit=1`;
+            const r = await sbFetch(`/rest/v1/oauth_tokens_secure?${qs}`, { method: 'GET' }, 1200);
+            if (r && r.ok) {
               const arr = await r.json();
               if (arr && arr.length) {
                 persistence.last_saved_at = arr[0].created_at || null;
@@ -289,11 +287,17 @@ export function create_server() {
       function supabaseEnabled() {
         return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
       }
-      async function sbFetch(pathname, init) {
+      async function sbFetch(pathname, init, timeoutMs = 1500) {
         const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
         const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
         const headers = Object.assign({}, init?.headers || {}, { apikey: key, Authorization: `Bearer ${key}` });
-        return fetch(base + pathname, Object.assign({}, init, { headers }));
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), Math.max(250, timeoutMs));
+        try {
+          return await fetch(base + pathname, Object.assign({}, init, { headers, signal: controller.signal }));
+        } finally {
+          clearTimeout(t);
+        }
       }
       if (method === 'GET' && pathname === '/api/change-requests') {
         const locId = query?.location_id || null;
@@ -358,14 +362,14 @@ export function create_server() {
             },
             owner_signoff: Boolean(body?.owner_signoff || false),
           });
-          // Optional: persist to Supabase
+          // Optional: persist to Supabase (non-blocking)
           if (supabaseEnabled()) {
             try {
-              await sbFetch('/rest/v1/owner_change_requests', {
+              sbFetch('/rest/v1/owner_change_requests', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
                 body: JSON.stringify([{ id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false) }]),
-              });
+              }, 1500).catch(()=>{});
             } catch {}
           }
           return json(res, 201, { ok: true, id: rec.id });
@@ -383,14 +387,14 @@ export function create_server() {
           }
           const rec = set_status(id, st);
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
-          // Optional: persist to Supabase
+          // Optional: persist to Supabase (non-blocking)
           if (supabaseEnabled()) {
             try {
-              await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
+              sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
                 body: JSON.stringify({ status: st }),
-              });
+              }, 1500).catch(()=>{});
             } catch {}
           }
           return json(res, 200, { ok: true });
@@ -410,14 +414,14 @@ export function create_server() {
           const body = await read_json();
           const rec = set_checks(id, body || {});
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
-          // Optional: persist to Supabase
+          // Optional: persist to Supabase (non-blocking)
           if (supabaseEnabled()) {
             try {
-              await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
+              sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
                 body: JSON.stringify({ checks: body || {} }),
-              });
+              }, 1500).catch(()=>{});
             } catch {}
           }
           return json(res, 200, { ok: true });
