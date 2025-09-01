@@ -394,6 +394,7 @@ export function create_server() {
                 changes: task.data.changes,
                 status: task.data.status,
                 owner_signoff: task.data.owner_signoff,
+                created_by_email: task.data.created_by_email,
               }];
               const r = await sbFetch('/rest/v1/owner_change_requests', {
                 method: 'POST',
@@ -548,7 +549,7 @@ export function create_server() {
             owner_signoff: Boolean(body?.owner_signoff || false),
           });
           // Outbox: 後続でSupabaseに非同期保存（リトライあり）
-          enqueueOutbox({ type: 'insert_change_request', data: { id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false) } });
+          enqueueOutbox({ type: 'insert_change_request', data: { id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false), created_by_email: email } });
           return json(res, 201, { ok: true, id: rec.id });
         } catch (e) {
           return json(res, 400, { ok: false, error: 'invalid_json' });
