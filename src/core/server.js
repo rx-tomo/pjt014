@@ -66,12 +66,21 @@ function json(res, status, data) {
 
   // Simple top navigation to clarify who each screen is for
   function header_nav() {
+    const dev = DEV_ENABLED;
+    const roleSwitch = dev
+      ? `<span style="float:right; color:#555">Role: 
+           <a href="/__dev/impersonate?role=owner">Owner</a> |
+           <a href="/__dev/impersonate?role=reviewer">Reviewer</a> |
+           <a href="/__dev/impersonate?role=admin">Admin</a>
+         </span>`
+      : '';
     return `
-      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd">
+      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">
         <a href="/">Home</a> |
         <a href="/locations">Locations</a> |
         <a href="/owner">Owner Portal</a> |
         <a href="/review">Review Queue</a>
+        ${roleSwitch}
       </nav>
     `;
   }
@@ -132,6 +141,24 @@ export function create_server() {
           if (i >= 0) dev_clients.splice(i, 1);
         });
         return; // keep open
+      }
+      // Dev: role impersonation
+      if (DEV_ENABLED && method === 'GET' && pathname === '/__dev/impersonate') {
+        try {
+          const url = new URL(req.url || '', 'http://x');
+          const role = String(url.searchParams.get('role') || '').toLowerCase();
+          const allowed = new Set(['owner','reviewer','admin']);
+          if (!allowed.has(role)) {
+            res.statusCode = 400; res.end('invalid role'); return;
+          }
+          res.setHeader('set-cookie', [
+            `role=${encodeURIComponent(role)}; Path=/; HttpOnly; SameSite=Lax`,
+          ]);
+          const ref = req.headers.referer || '/';
+          res.statusCode = 302; res.setHeader('location', ref); return res.end();
+        } catch {
+          res.statusCode = 400; return res.end('bad request');
+        }
       }
 
       start_dev_watcher_once();
