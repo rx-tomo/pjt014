@@ -15,6 +15,7 @@ import { parse_cookies, verify_value } from './cookies.js';
 import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
+import { get_owned_location_ids } from './memberships_stub.js';
 import { create_change_request, list_change_requests, set_status, get_change_request, set_checks } from './change_requests_store.js';
 import { check_changes } from './compliance_stub.js';
 
@@ -398,6 +399,39 @@ export function create_server() {
           if (!body || !(body.owner_signoff === true || body.owner_signoff === 'true' || body.owner_signoff === 1 || body.owner_signoff === '1')) {
             return json(res, 400, { ok: false, error: 'invalid_owner_signoff' });
           }
+          // 認可: 所属ロケーションのみ作成可能
+          let session = null;
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const secret = process.env.APP_SECRET || 'dev_secret';
+            const sidSigned = parsed.sid;
+            if (sidSigned) {
+              const sid = verify_value(sidSigned, secret);
+              if (sid) session = get_session(sid);
+            }
+          } catch {}
+          const email = session?.user?.email || null;
+          if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+          const allowed = new Set(get_owned_location_ids(email));
+          if (!allowed.has(body.location_id)) return json(res, 403, { ok: false, error: 'forbidden' });
+
+          // 入力バリデーション（簡易）
+          const errors = {};
+          if (body.phone != null && String(body.phone).trim() !== '') {
+            const phone = String(body.phone).trim();
+            const phoneOk = /^(?:\+?\d{1,4}[ \-]?)?(?:\d{2,4}[ \-]?){2,4}\d{2,4}$/.test(phone);
+            if (!phoneOk) errors.phone = 'invalid_format';
+          }
+          if (body.url != null && String(body.url).trim() !== '') {
+            const url = String(body.url).trim();
+            let parsedUrlOk = true;
+            try { new URL(url); } catch { parsedUrlOk = false; }
+            const httpsOk = /^https:\/\//i.test(url);
+            if (!parsedUrlOk) errors.url = 'invalid_url';
+            else if (!httpsOk) errors.url = 'require_https';
+          }
+          if (Object.keys(errors).length) return json(res, 400, { ok: false, error: 'validation_error', errors });
           const rec = create_change_request({
             location_id: body?.location_id || null,
             changes: {
@@ -552,14 +586,31 @@ export function create_server() {
 
       if (method === 'GET' && pathname === '/owner') {
         // 選択画面（複数ロケーションを持つオーナー向け）
-        const items = get_locations(); // TODO: 認可後は所属ロケーションに限定
-        const li = items.map(it=>`<li><a href="/owner/${it.id}">${it.name}</a> - ${it.address||''}</li>`).join('');
+        // 認可: セッションのメールに基づき所属ロケーションを限定
+        let session = null;
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const secret = process.env.APP_SECRET || 'dev_secret';
+          const sidSigned = parsed.sid;
+          if (sidSigned) {
+            const sid = verify_value(sidSigned, secret);
+            if (sid) session = get_session(sid);
+          }
+        } catch {}
+        const email = session?.user?.email || null;
+        const allowed = email ? new Set(get_owned_location_ids(email)) : new Set();
+        const source = get_locations();
+        const items = email ? source.filter(it => allowed.has(it.id)) : [];
+        const body = email ? items : source; // 未サインイン時は参照のみのデモとして全件表示
+        const li = body.map(it=>`<li><a href="/owner/${it.id}">${it.name}</a> - ${it.address||''}</li>`).join('');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
           <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
         </head><body>
           ${header_nav()}
           <h1>オーナーポータル：ロケーション選択</h1>
           <p style="color:#555">対象: オーナー。できること: 編集対象のロケーションを選択。</p>
+          ${email ? '' : '<div style="color:#900;margin:8px 0">編集するにはGoogleでサインインしてください（Homeから開始）。現在は閲覧のみ可能です。</div>'}
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>：変更したいロケーションを選び、次の画面で編集内容を入力して送信します。
           </div>
@@ -571,6 +622,28 @@ export function create_server() {
 
       if (method === 'GET' && pathname.startsWith('/owner/')) {
         const id = pathname.split('/').pop();
+        // 認可: セッションの所属ロケーションのみ許可
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const secret = process.env.APP_SECRET || 'dev_secret';
+          const sidSigned = parsed.sid;
+          if (sidSigned) {
+            const sid = verify_value(sidSigned, secret);
+            const session = sid ? get_session(sid) : null;
+            const email = session?.user?.email || null;
+            if (email) {
+              const allowed = new Set(get_owned_location_ids(email));
+              if (!allowed.has(id || '')) {
+                return html(res, 403, '<!doctype html><html><body><h1>Forbidden</h1><p>このロケーションを編集する権限がありません。</p></body></html>');
+              }
+            } else {
+              return html(res, 401, '<!doctype html><html><body><h1>Unauthorized</h1><p>編集にはサインインが必要です。</p></body></html>');
+            }
+          } else {
+            return html(res, 401, '<!doctype html><html><body><h1>Unauthorized</h1><p>編集にはサインインが必要です。</p></body></html>');
+          }
+        } catch {}
         const loc = get_location(id || '');
         if (!loc) return html(res, 404, '<!doctype html><html><body><h1>Not Found</h1></body></html>');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal (stub)</title>
