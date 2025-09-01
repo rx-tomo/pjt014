@@ -158,10 +158,19 @@ export function create_server() {
     <div style="background:#f6fafe;border:1px solid #cde;padding:10px;border-radius:6px;margin:10px 0">
       <b>画面の使い分け（デモ）</b>
       <ul>
-        <li><a href="/owner">Owner Portal</a>: 対象=オーナー。自分のロケーションを選び、変更依頼を提出。</li>
-        <li><a href="/review">Review Queue</a>: 対象=オペレーター/承認者。依頼のチェック/承認/差戻し。</li>
         <li><a href="/locations">Locations</a>: 対象=全ユーザー（閲覧）。ロケーション一覧/詳細の確認。</li>
+        <li><a href="/owner">Owner Portal</a>: 対象=オーナー。ロケーションを選び、変更依頼を提出。</li>
+        <li><a href="/review">Review Queue</a>: 対象=オペレーター/承認者。依頼のチェック/承認/差戻し。</li>
       </ul>
+      <div style="margin-top:8px">
+        <b>推奨チェック手順</b>
+        <ol style="margin:6px 0 0 18px; padding:0">
+          <li>Locationsで対象ロケーションを確認</li>
+          <li>Owner Portalで変更依頼を作成し送信（同意チェック必須）</li>
+          <li>Review Queueで新規依頼を開き、自動チェックとチェックリストを確認</li>
+          <li>問題なければ承認（approved）。修正要なら差戻し（needs_fix）。</li>
+        </ol>
+      </div>
     </div>
     <h2>Dashboard</h2>
     <div id="auth" style="margin-bottom:12px;">
@@ -449,7 +458,10 @@ export function create_server() {
         </head><body>
         ${header_nav()}
         <h1>ロケーション一覧（stub）</h1>
-        <p style="color:#555">対象: 閲覧者/オーナー/オペレーター（デモ）。できること: ロケーションの閲覧、詳細へ遷移。</p>
+        <p style="color:#555">対象: 閲覧者/オーナー/オペレーター。できること: ロケーションの閲覧、詳細へ遷移。</p>
+        <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
+          <b>使い方</b>：対象ロケーションをクリックして詳細を確認し、変更が必要なら詳細ページからオーナーポータルへ進みます。
+        </div>
         <ul id="list"></ul>
         <script>
           fetch('/api/locations').then(r=>r.json()).then(j=>{
@@ -474,7 +486,10 @@ export function create_server() {
         </head><body>
         ${header_nav()}<p><a href="/locations">← 一覧へ</a></p>
         <h1>${loc.name}</h1>
-        <p style="color:#555">対象: 閲覧者/オーナー/オペレーター（デモ）。できること: 基本情報の確認、オーナー編集画面へ。</p>
+        <p style="color:#555">対象: 閲覧者/オーナー/オペレーター。できること: 基本情報の確認、オーナー編集画面へ。</p>
+        <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
+          <b>使い方</b>：内容に変更が必要な場合、下部のリンクからオーナーポータルで変更依頼を作成します。
+        </div>
         <dl>
           <dt>電話</dt><dd>${loc.phone||''}</dd>
           <dt>住所</dt><dd>${loc.address||''}</dd>
@@ -496,6 +511,9 @@ export function create_server() {
           ${header_nav()}
           <h1>オーナーポータル：ロケーション選択</h1>
           <p style="color:#555">対象: オーナー。できること: 編集対象のロケーションを選択。</p>
+          <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
+            <b>使い方</b>：変更したいロケーションを選び、次の画面で編集内容を入力して送信します。
+          </div>
           <p>編集したいロケーションを選択してください。</p>
           <ul>${li}</ul>
         </body></html>`;
@@ -524,6 +542,15 @@ export function create_server() {
           <p><a href="/owner">← ロケーション選択へ</a></p>
           <h1>オーナーポータル（最小） - ${loc.name}</h1>
           <p style="color:#555">対象: オーナー。できること: 基本項目の変更依頼を提出（保存は開発用の一時保存）。</p>
+          <div class="card" style="margin:10px 0; background:#fafcff">
+            <b>使い方</b>
+            <ol style="margin:6px 0 0 18px; padding:0">
+              <li>変更したい項目を入力（説明は自動チェック対象）</li>
+              <li>自動チェックの警告を確認し、必要に応じて文面を修正</li>
+              <li>「オーナーによる内容確認（必須）」にチェックを入れる</li>
+              <li>送信すると下の一覧に追加され、レビュー画面で確認できます</li>
+            </ol>
+          </div>
           <div class="grid">
             <div class="card">
               <h2>ステータス/KPI（stub）</h2>
@@ -618,6 +645,9 @@ export function create_server() {
           ${header_nav()}
           <h1>承認キュー</h1>
           <p style="color:#555">対象: オペレーター/承認者。できること: 依頼のレビュー/承認/差戻し。</p>
+          <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
+            <b>使い方</b>：一覧からIDをクリックして詳細へ。詳細画面で自動チェックとチェックリストを確認し、承認/差戻しを行います。
+          </div>
           <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"><tr><td colspan="4" style="color:#555">loading...</td></tr></tbody></table>
           <script>
             async function load(){
@@ -649,7 +679,17 @@ export function create_server() {
           ${header_nav()}
           <p><a href="/review">← 承認キュー</a></p>
           <h1>レビュー（stub） - <span id="loc"></span></h1>
-          <p style="color:#555">対象: レビュアー/承認者。できること: チェックリスト保存、状態更新（承認/差戻し）。</p>
+          <p style="color:#555">対象: レビュアー/承認者。できること: 自動チェックの確認、チェックリスト保存、状態更新（承認/差戻し）。</p>
+          <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
+            <b>使い方</b>
+            <ol style="margin:6px 0 0 18px; padding:0">
+              <li>上部の変更内容（JSON）を確認</li>
+              <li>「コンプライアンス（自動チェック）」の警告を確認</li>
+              <li>「チェックリスト」に沿って目視確認し、必要項目にチェック → 保存</li>
+              <li>承認（approved）または差戻し（needs_fix）を選択して状態更新</li>
+            </ol>
+            <div style="margin-top:6px;color:#555">補足：オーナー確認の有無も表示されます。</div>
+          </div>
           <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee">loading...</pre>
           <h2>コンプライアンス（自動チェック・簡易）</h2>
           <div id="auto">loading...</div>
