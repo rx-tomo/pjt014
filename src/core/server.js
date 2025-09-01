@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import { parse, fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   handle_oauth_status,
   handle_oauth_start,
@@ -91,6 +92,8 @@ export function create_server() {
     const t0 = Date.now();
     const { pathname, query } = parse(req.url || '/', true);
     const method = (req.method || 'GET').toUpperCase();
+    const reqId = randomUUID().slice(0, 8);
+    try { res.setHeader('x-request-id', reqId); } catch {}
 
     // CORS (シンプルに許可)
     res.setHeader('access-control-allow-origin', '*');
@@ -102,10 +105,17 @@ export function create_server() {
     }
 
     try {
+      const ref = (req.headers.referer || '').toString();
+      const ua = (req.headers['user-agent'] || '').toString();
+      console.log(`[http] -> start ${reqId} ${method} ${pathname} ref=${ref||'-'} ua=${ua.slice(0,60)}`);
       // basic request timing log
       res.on('finish', () => {
         const ms = Date.now() - t0;
-        try { console.log(`[http] ${method} ${pathname} ${res.statusCode} ${ms}ms`); } catch {}
+        try { console.log(`[http] <- end   ${reqId} ${method} ${pathname} ${res.statusCode} ${ms}ms`); } catch {}
+      });
+      res.on('close', () => {
+        const ms = Date.now() - t0;
+        try { console.log(`[http] !! close ${reqId} ${method} ${pathname} ${res.statusCode} ${ms}ms`); } catch {}
       });
       // Dev SSE endpoint
       if (DEV_ENABLED && method === 'GET' && pathname === '/__dev/reload') {
@@ -125,15 +135,24 @@ export function create_server() {
 
       start_dev_watcher_once();
       async function read_json() {
+        const tStart = Date.now();
         return await new Promise((resolve, reject) => {
           const chunks = [];
-          const onError = (e) => reject(e || new Error('request_error'));
+          const onError = (e) => {
+            const ms = Date.now() - tStart;
+            console.warn(`[http] ${method} ${pathname} read_json error after ${ms}ms: ${e && e.message ? e.message : e}`);
+            reject(e || new Error('request_error'));
+          };
           req.on('data', (c) => chunks.push(c));
           req.on('end', () => {
+            const ms = Date.now() - tStart;
             try {
-              const raw = Buffer.concat(chunks).toString('utf8') || '{}';
+              const rawBuf = Buffer.concat(chunks);
+              const raw = rawBuf.toString('utf8') || '{}';
+              console.log(`[http] ${method} ${pathname} read_json ok ${rawBuf.length}B ${ms}ms`);
               resolve(JSON.parse(raw));
             } catch (e) {
+              console.warn(`[http] ${method} ${pathname} read_json parse failed ${ms}ms: ${e && e.message ? e.message : e}`);
               reject(e);
             }
           });
@@ -309,9 +328,19 @@ export function create_server() {
         const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
         const headers = Object.assign({}, init?.headers || {}, { apikey: key, Authorization: `Bearer ${key}` });
         const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), Math.max(250, timeoutMs));
+        const to = Math.max(250, timeoutMs);
+        const started = Date.now();
+        const t = setTimeout(() => controller.abort(), to);
         try {
-          return await fetch(base + pathname, Object.assign({}, init, { headers, signal: controller.signal }));
+          console.log(`[sb] -> ${init?.method || 'GET'} ${pathname} (timeout=${to}ms)`);
+          const res = await fetch(base + pathname, Object.assign({}, init, { headers, signal: controller.signal }));
+          const ms = Date.now() - started;
+          console.log(`[sb] <- ${res.status} ${pathname} ${ms}ms`);
+          return res;
+        } catch (e) {
+          const ms = Date.now() - started;
+          console.warn(`[sb] !! error ${pathname} after ${ms}ms: ${e && e.message ? e.message : e}`);
+          throw e;
         } finally {
           clearTimeout(t);
         }
@@ -448,9 +477,22 @@ export function create_server() {
 
       if (method === 'GET' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/compliance')) {
         const id = pathname.split('/')[3];
+        let changes = null;
         const rec = get_change_request(id || '');
-        if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
-        const results = check_changes(rec?.payload?.changes || {});
+        if (rec) {
+          changes = rec?.payload?.changes || {};
+        } else if (supabaseEnabled()) {
+          try {
+            const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, { method: 'GET' }, 600);
+            if (r.ok) {
+              const arr = await r.json();
+              const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
+              if (item) changes = item?.changes || {};
+            }
+          } catch {}
+        }
+        if (!changes) return json(res, 404, { ok: false, error: 'not_found' });
+        const results = check_changes(changes);
         return json(res, 200, { ok: true, results });
       }
 
