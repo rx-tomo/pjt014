@@ -42,7 +42,7 @@ function json(res, status, data) {
 
   function dev_reload_script() {
     if (!DEV_ENABLED) return '';
-    return `\n<script>\n(()=>{ try{ const es = new EventSource('/__dev/reload'); es.onmessage = (e)=>{ if(e.data==='reload'){ location.reload(); } }; }catch(e){} })();\n</script>\n`;
+    return `\n<script>\n(()=>{\n  const connect = ()=>{ try{ const es = new EventSource('/__dev/reload'); es.onmessage = (e)=>{ if(e.data==='reload'){ location.reload(); } }; }catch(e){} };\n  if (document.readyState === 'complete') { setTimeout(connect, 0); } else { window.addEventListener('load', connect, { once: true }); }\n})();\n</script>\n`;
   }
 
   function dev_broadcast_reload() {
@@ -121,6 +121,7 @@ export function create_server() {
       async function read_json() {
         return await new Promise((resolve, reject) => {
           const chunks = [];
+          const onError = (e) => reject(e || new Error('request_error'));
           req.on('data', (c) => chunks.push(c));
           req.on('end', () => {
             try {
@@ -130,7 +131,8 @@ export function create_server() {
               reject(e);
             }
           });
-          req.on('error', reject);
+          req.on('error', onError);
+          req.on('aborted', () => onError(new Error('request_aborted')));
         });
       }
 
