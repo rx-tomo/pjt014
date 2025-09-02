@@ -86,6 +86,12 @@ export function handle_oauth_start(_req, res, query) {
 }
 
 export async function handle_oauth_callback(_req, res, query) {
+  const SECURE = (function(){
+    const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes') return true;
+    if (v === '0' || v === 'false' || v === 'no') return false;
+    return process.env.NODE_ENV === 'production';
+  })();
   const { code, state, error } = query || {};
   if (error) return write_json(res, 400, { ok: false, error });
   if (!code) return write_json(res, 400, { ok: false, error: 'missing_code' });
@@ -294,12 +300,6 @@ export async function handle_oauth_refresh(req, res) {
           });
         } catch (_) {}
       }
-  const SECURE = (function(){
-    const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
-    if (v === '1' || v === 'true' || v === 'yes') return true;
-    if (v === '0' || v === 'false' || v === 'no') return false;
-    return process.env.NODE_ENV === 'production';
-  })();
     } catch {}
     return write_json(res, 200, { ok: true, refreshed: true });
   } catch (e) {

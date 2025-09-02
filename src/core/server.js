@@ -970,7 +970,13 @@ export function create_server() {
                 if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#555">依頼はまだありません</td>'; tb.appendChild(tr); document.getElementById('last_reason').textContent=''; return; }
                 // 最新のneeds_fix理由（あれば）
                 try{
-                  const nf = arr.find(x=>x.status==='needs_fix' && (x.review_note||'').trim().length>0);
+                  const nfArr = arr.filter(x=>x.status==='needs_fix' && (x.review_note||'').trim().length>0);
+                  nfArr.sort(function(a,b){
+                    const da = Date.parse(a.created_at||'');
+                    const db = Date.parse(b.created_at||'');
+                    return (db||0) - (da||0);
+                  });
+                  const nf = nfArr[0] || null;
                   const el = document.getElementById('last_reason');
                   if (nf) {
                     const key = 'pjt014:last_seen_reason:' + ${JSON.stringify(loc.id)};
@@ -1028,6 +1034,15 @@ export function create_server() {
       }
 
       if (method === 'GET' && pathname === '/review') {
+        // Access control (dev): only reviewer role can view review pages
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const role = (parsed.role || '').toString();
+          if (DEV_ENABLED && role !== 'reviewer') {
+            res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
+          }
+        } catch {}
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
           <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px} select{margin-left:8px} .muted{color:#666}</style>
         </head><body>
@@ -1081,6 +1096,15 @@ export function create_server() {
       }
 
       if (method === 'GET' && pathname.startsWith('/review/')) {
+        // Access control (dev): only reviewer role can view
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const role = (parsed.role || '').toString();
+          if (DEV_ENABLED && role !== 'reviewer') {
+            res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
+          }
+        } catch {}
         const id = pathname.split('/').pop();
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review ${id}</title>
           <style>body{font-family:system-ui;padding:20px} label{display:block;margin:6px 0}</style>
