@@ -908,6 +908,7 @@ export function create_server() {
             </table>
           </div>
           <script>
+            function fmt(ts){ try{ const d=new Date(ts); if(!isNaN(d)) return d.toLocaleString(); }catch{} return ts||''; }
             async function loadStatus(){
               try{ const j = await (await fetch('/api/dashboard')).json();
                 const el = document.getElementById('status');
@@ -926,13 +927,23 @@ export function create_server() {
                 // 最新のneeds_fix理由（あれば）
                 try{
                   const nf = arr.find(x=>x.status==='needs_fix' && (x.review_note||'').trim().length>0);
-                  document.getElementById('last_reason').textContent = nf ? ('最新の差戻し理由: '+(nf.review_note||'')) : '';
+                  const el = document.getElementById('last_reason');
+                  if (nf) {
+                    const key = 'pjt014:last_seen_reason:${loc.id}';
+                    const lastSeen = localStorage.getItem(key) || '';
+                    const created = nf.created_at || '';
+                    const isNew = created && created !== lastSeen;
+                    el.innerHTML = (isNew? '<b style="background:#ff0;color:#900;padding:0 6px;margin-right:6px">新着</b>' : '') + '最新の差戻し理由: ' + (nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>' + (isNew? ' <button id="mark_seen" style="margin-left:6px">既読にする</button>' : '');
+                    const btn = document.getElementById('mark_seen'); if(btn) btn.onclick = ()=>{ localStorage.setItem(key, created||''); el.innerHTML = '最新の差戻し理由: ' + (nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>'; };
+                  } else {
+                    el.textContent = '';
+                  }
                 }catch{ document.getElementById('last_reason').textContent=''; }
                 arr.forEach(r=>{ const tr=document.createElement('tr');
                   const reason = (r.review_note||'');
                   const st = (r.status||'');
                   const reasonCell = reason ? ('<span style="color:#900">'+reason.replace(/</g,'&lt;')+'</span>') : '';
-                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+st+'</td><td>'+reasonCell+'</td><td>'+(r.created_at||'')+'</td>';
+                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+st+'</td><td>'+reasonCell+'</td><td>'+fmt(r.created_at||'')+'</td>';
                   tb.appendChild(tr);
                 });
               }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
@@ -974,7 +985,7 @@ export function create_server() {
 
       if (method === 'GET' && pathname === '/review') {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
-          <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px} select{margin-left:8px}</style>
+          <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px} select{margin-left:8px} .muted{color:#666}</style>
         </head><body>
           ${header_nav()}
           <h1>承認キュー</h1>
@@ -997,6 +1008,7 @@ export function create_server() {
           </div>
           <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"><tr><td colspan="4" style="color:#555">loading...</td></tr></tbody></table>
           <script>
+            function fmt(ts){ try{ const d=new Date(ts); if(!isNaN(d)) return d.toLocaleString(); }catch{} return ts||''; }
             function getQueryParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||''; }
             function setQueryParam(name,val){ const u=new URL(location.href); if(val) u.searchParams.set(name,val); else u.searchParams.delete(name); history.replaceState(null,'',u.toString()); }
             async function load(){
@@ -1008,15 +1020,15 @@ export function create_server() {
               try{
                 const j = await (await fetch('/api/change-requests'+(st?('?status='+encodeURIComponent(st)):'') )).json();
                 const arr = j.items||[];
-                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#555">0件</td>'; tb.appendChild(tr); return; }
+                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" class="muted">該当する依頼はありません</td>'; tb.appendChild(tr); return; }
                 arr.forEach(r=>{
                   const tr = document.createElement('tr');
                   const id = r.id; const loc = (r.location_id||r.payload?.location_id||'');
-                  const st = (r.status||''); const created = (r.created_at||'');
+                  const st = (r.status||''); const created = fmt(r.created_at||'');
                   tr.innerHTML = '<td><a href="/review/'+id+'">'+id+'</a></td><td>'+loc+'</td><td>'+st+'</td><td>'+created+'</td>';
                   tb.appendChild(tr);
                 });
-              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">取得に失敗しました</td>'; tb.appendChild(tr); }
+              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             load();
           </script>
@@ -1077,6 +1089,13 @@ export function create_server() {
                 document.getElementById('loc').textContent = item.location_id || '';
                 document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
                 document.getElementById('cur_status').textContent = 'Status: ' + (item.status||'');
+                // Auto-transition: move submitted -> in_review on open
+                try{
+                  if ((item.status||'') === 'submitted') {
+                    await setStatus('in_review');
+                    document.getElementById('cur_status').textContent = 'Status: in_review';
+                  }
+                }catch{}
                 // prefill checks
                 try{
                   const ch = item.checks||{}; const f = document.getElementById('checks');
