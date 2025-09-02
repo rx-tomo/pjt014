@@ -53,11 +53,13 @@
 
 - 変更依頼（Owner/Review フロー）
   - `GET /api/change-requests` 一覧（`?location_id=` で絞り込み）
+    - 追加: `?status=submitted|in_review|needs_fix|approved|syncing|synced|failed` で状態絞り込み
   - `GET /api/change-requests/:id` 単体取得
   - `POST /api/change-requests` 作成（必須: `location_id`。任意: `phone,hours,url,description,photo_url,owner_signoff`）
   - `POST /api/change-requests/:id/status` ステータス更新（`submitted|in_review|needs_fix|approved|syncing|synced|failed`）
+    - `needs_fix` の場合は `reason` が必須。監査ログに理由を記録、Supabase連携時は `review_note` に保存。
   - `POST /api/change-requests/:id/checks` レビューチェック保存（JSONブール群）
-   - `GET /api/change-requests/:id/compliance` 自動チェック結果
+  - `GET /api/change-requests/:id/compliance` 自動チェック結果
   - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）
 
 ### コンプライアンス設定

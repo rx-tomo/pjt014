@@ -472,6 +472,7 @@ export function create_server() {
       ensureOutboxTimer();
       if (method === 'GET' && pathname === '/api/change-requests') {
         const locId = query?.location_id || null;
+        const st = query?.status || null;
         if (locId) {
           // 所有者のみ該当ロケーションの一覧にアクセス可能
           let session = null;
@@ -494,6 +495,7 @@ export function create_server() {
           try {
             const params = new URLSearchParams();
             if (locId) params.set('location_id', `eq.${encodeURIComponent(locId)}`);
+            if (st) params.set('status', `eq.${encodeURIComponent(String(st))}`);
             const qs = params.toString();
             const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''), { method: 'GET' }, 600);
             const arr = r.ok ? await r.json() : [];
@@ -503,7 +505,9 @@ export function create_server() {
           } catch {}
         }
         const all = list_change_requests();
-        const items = locId ? all.filter(r => (r.payload?.location_id||null) === locId) : all;
+        let items = all;
+        if (locId) items = items.filter(r => (r.payload?.location_id||null) === locId);
+        if (st) items = items.filter(r => (r.status||'') === st);
         return json(res, 200, { ok: true, items });
       }
       if (method === 'GET' && pathname.startsWith('/api/change-requests/')) {
@@ -942,7 +946,7 @@ export function create_server() {
 
       if (method === 'GET' && pathname === '/review') {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
-          <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px}</style>
+          <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px} select{margin-left:8px}</style>
         </head><body>
           ${header_nav()}
           <h1>承認キュー</h1>
@@ -950,12 +954,31 @@ export function create_server() {
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>：一覧からIDをクリックして詳細へ。詳細画面で自動チェックとチェックリストを確認し、承認/差戻しを行います。
           </div>
+          <div style="margin:8px 0">
+            表示フィルタ: 
+            <select id="filter">
+              <option value="">すべて</option>
+              <option value="submitted">submitted</option>
+              <option value="in_review">in_review</option>
+              <option value="needs_fix">needs_fix</option>
+              <option value="approved">approved</option>
+              <option value="syncing">syncing</option>
+              <option value="synced">synced</option>
+              <option value="failed">failed</option>
+            </select>
+          </div>
           <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"><tr><td colspan="4" style="color:#555">loading...</td></tr></tbody></table>
           <script>
+            function getQueryParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||''; }
+            function setQueryParam(name,val){ const u=new URL(location.href); if(val) u.searchParams.set(name,val); else u.searchParams.delete(name); history.replaceState(null,'',u.toString()); }
             async function load(){
               const tb = document.getElementById('rows'); tb.innerHTML='';
+              const st = getQueryParam('status');
+              const sel = document.getElementById('filter');
+              if (st) sel.value = st;
+              sel.onchange = ()=>{ setQueryParam('status', sel.value||''); load(); };
               try{
-                const j = await (await fetch('/api/change-requests')).json();
+                const j = await (await fetch('/api/change-requests'+(st?('?status='+encodeURIComponent(st)):'') )).json();
                 const arr = j.items||[];
                 if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#555">0件</td>'; tb.appendChild(tr); return; }
                 arr.forEach(r=>{
@@ -981,6 +1004,7 @@ export function create_server() {
           ${header_nav()}
           <p><a href="/review">← 承認キュー</a></p>
           <h1>レビュー（stub） - <span id="loc"></span></h1>
+          <div id="cur_status" style="margin:6px 0;color:#555">Status: loading...</div>
           <p style="color:#555">対象: レビュアー/承認者。できること: 自動チェックの確認、チェックリスト保存、状態更新（承認/差戻し）。</p>
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>
@@ -1012,6 +1036,7 @@ export function create_server() {
           <h2>監査ログ</h2>
           <div id="audit" style="border:1px solid #eee;padding:8px;border-radius:6px;color:#555">loading...</div>
           <p>
+            <button id="start_review">レビュー開始（in_review）</button>
             <button id="approve">承認（approved）</button>
             <button id="needs_fix">差戻し（needs_fix）</button>
           </p>
@@ -1023,6 +1048,7 @@ export function create_server() {
                 const item = j.item;
                 document.getElementById('loc').textContent = item.location_id || '';
                 document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
+                document.getElementById('cur_status').textContent = 'Status: ' + (item.status||'');
                 // prefill checks
                 try{
                   const ch = item.checks||{}; const f = document.getElementById('checks');
@@ -1032,6 +1058,13 @@ export function create_server() {
                 }catch{}
                 // show owner signoff
                 document.getElementById('owner').textContent = 'オーナー確認: ' + (item.owner_signoff ? '済' : '未');
+                // toggle start review button
+                try{
+                  const btn = document.getElementById('start_review');
+                  const st = (item.status||'');
+                  const hide = (st==='in_review' || st==='approved' || st==='needs_fix' || st==='synced');
+                  btn.style.display = hide ? 'none' : 'inline-block';
+                }catch{}
               }catch{ document.getElementById('payload').textContent='取得に失敗しました'; }
             }
             async function loadAuto(){
@@ -1080,6 +1113,7 @@ export function create_server() {
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
+            document.getElementById('start_review').onclick = ()=> setStatus('in_review');
             loadItem(); loadAuto(); loadAudit();
           </script>
         </body></html>`;
