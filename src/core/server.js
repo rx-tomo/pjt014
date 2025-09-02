@@ -531,6 +531,7 @@ export function create_server() {
           changes: rec.payload?.changes || {},
           status: rec.status,
           created_at: rec.created_at,
+          review_note: rec.review_note || null,
           owner_signoff: Boolean(rec.payload?.owner_signoff || false),
           checks: rec.checks || {},
         };
@@ -881,9 +882,10 @@ export function create_server() {
             </div>
           </div>
           <div class="card" style="margin-top:16px">
+            <div id="last_reason" style="margin:8px 0;color:#900"></div>
             <h2>依頼一覧（最新順, stub保存）</h2>
             <table>
-              <thead><tr><th>ID</th><th>Location</th><th>Status</th><th>Created</th></tr></thead>
+              <thead><tr><th>ID</th><th>Location</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>
               <tbody id="reqs"></tbody>
             </table>
           </div>
@@ -902,12 +904,20 @@ export function create_server() {
                 const r = await fetch('/api/change-requests?location_id=${loc.id}');
                 const j = await r.json();
                 const arr = j.items||[];
-                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#555">依頼はまだありません</td>'; tb.appendChild(tr); return; }
+                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#555">依頼はまだありません</td>'; tb.appendChild(tr); document.getElementById('last_reason').textContent=''; return; }
+                // 最新のneeds_fix理由（あれば）
+                try{
+                  const nf = arr.find(x=>x.status==='needs_fix' && (x.review_note||'').trim().length>0);
+                  document.getElementById('last_reason').textContent = nf ? ('最新の差戻し理由: '+(nf.review_note||'')) : '';
+                }catch{ document.getElementById('last_reason').textContent=''; }
                 arr.forEach(r=>{ const tr=document.createElement('tr');
-                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+(r.status||'')+'</td><td>'+(r.created_at||'')+'</td>';
+                  const reason = (r.review_note||'');
+                  const st = (r.status||'');
+                  const reasonCell = reason ? ('<span style="color:#900">'+reason.replace(/</g,'&lt;')+'</span>') : '';
+                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+st+'</td><td>'+reasonCell+'</td><td>'+(r.created_at||'')+'</td>';
                   tb.appendChild(tr);
                 });
-              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
+              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             async function liveCheck(){
               const desc = document.getElementById('desc').value||'';
