@@ -12,6 +12,7 @@ export function create_change_request(payload) {
     updated_at: now,
     payload: payload || {},
     checks: {},
+    created_by_email: null,
   };
   store.set(id, rec);
   return rec;

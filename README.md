@@ -36,6 +36,9 @@
 - 追加（本番向け）
   - `COOKIE_SECURE=1`（推奨。本番HTTPS配下でCookieにSecure付与。未指定時はproductionで自動ON）
   - `ALLOWED_ORIGINS="https://example.com,https://admin.example.com"`（指定時はCORSをこれらに限定。未指定ならワイドオープン）
+  - 通知関連（任意）
+    - `NOTIFY_PROVIDER=console|webhook|none`（デフォルトnone）
+    - `NOTIFY_WEBHOOK_URL=...`（webhook選択時に送信先URL）
 
 ## ディレクトリ
 
@@ -62,6 +65,7 @@
   - `POST /api/change-requests` 作成（必須: `location_id`。任意: `phone,hours,url,description,photo_url,owner_signoff`）
   - `POST /api/change-requests/:id/status` ステータス更新（`submitted|in_review|needs_fix|approved|syncing|synced|failed`）
     - `needs_fix` の場合は `reason` が必須。監査ログに理由を記録、Supabase連携時は `review_note` に保存。
+    - 通知: `needs_fix` / `approved` で `NOTIFY_PROVIDER` に基づき通知（console/webhook）。Supabase接続時は `notifications` にも保存。
   - `POST /api/change-requests/:id/checks` レビューチェック保存（JSONブール群）
   - `GET /api/change-requests/:id/compliance` 自動チェック結果
   - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）

@@ -17,6 +17,7 @@ import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
 import { get_owned_location_ids } from './memberships_stub.js';
 import { create_change_request, list_change_requests, set_status, get_change_request, set_checks, set_status_and_reason } from './change_requests_store.js';
+import { notify, buildChangeRequestNotification } from './notifier.js';
 import { check_changes } from './compliance_stub.js';
 
 const DEFAULT_PORT = Number(process.env.PORT || 3014);
@@ -462,18 +463,36 @@ export function create_server() {
               }
               throw new Error('audit_persist_failed:'+r.status);
             }
-            if (task.type === 'patch_change_request') {
-              const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(task.id)}`, {
-                method: 'PATCH',
-                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-                body: JSON.stringify(task.patch || {}),
-              }, 1500);
-              if (r.ok) {
-                OUTBOX.splice(OUTBOX.indexOf(task), 1);
-                continue;
-              }
-              throw new Error('patch_failed:'+r.status);
+          if (task.type === 'patch_change_request') {
+            const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(task.id)}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+              body: JSON.stringify(task.patch || {}),
+            }, 1500);
+            if (r.ok) {
+              OUTBOX.splice(OUTBOX.indexOf(task), 1);
+              continue;
             }
+            throw new Error('patch_failed:'+r.status);
+          }
+          if (task.type === 'insert_notification') {
+            const r = await sbFetch('/rest/v1/notifications', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+              body: JSON.stringify([{ 
+                channel: task.data.channel || 'change_request',
+                target: task.data.target || null,
+                subject: task.data.subject || null,
+                body: task.data.body || null,
+                status: task.data.status || 'queued'
+              }]),
+            }, 1500);
+            if (r.ok) {
+              OUTBOX.splice(OUTBOX.indexOf(task), 1);
+              continue;
+            }
+            throw new Error('notification_persist_failed:'+r.status);
+          }
           } catch (e) {
             task.attempts += 1;
             const backoff = Math.min(60000, 1000 * Math.pow(2, Math.min(8, task.attempts - 1)));
@@ -608,6 +627,7 @@ export function create_server() {
             },
             owner_signoff: Boolean(body?.owner_signoff || false),
           });
+          try { rec.created_by_email = email || null; } catch {}
           // Outbox: 後続でSupabaseに非同期保存（リトライあり）
           enqueueOutbox({ type: 'insert_change_request', data: { id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false), created_by_email: email } });
           // Audit: 作成
@@ -645,6 +665,18 @@ export function create_server() {
             const session = sid ? get_session(sid) : null;
             const email = session?.user?.email || null;
             record_audit({ entity: 'change_request', entity_id: id, action: `status:${st}`, actor_email: email || null, meta: reason ? { reason } : {} });
+          } catch {}
+          // Notify owner (console/webhook) and persist notification to Supabase if configured
+          try {
+            const rec2 = get_change_request(id) || { id, status: st };
+            const note = buildChangeRequestNotification({ action: st, request: rec2, reason });
+            const targetEmail = rec2?.created_by_email || null;
+            await notify({ type: 'change_request', action: st, target: targetEmail, subject: note.subject, body: note.body });
+            if (supabaseEnabled()) {
+              enqueueOutbox({ type: 'insert_notification', data: {
+                channel: 'change_request', target: targetEmail, subject: note.subject, body: note.body, status: 'queued'
+              }});
+            }
           } catch {}
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
