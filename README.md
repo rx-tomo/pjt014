@@ -39,6 +39,8 @@
   - 通知関連（任意）
     - `NOTIFY_PROVIDER=console|webhook|none`（デフォルトnone）
     - `NOTIFY_WEBHOOK_URL=...`（webhook選択時に送信先URL）
+  - オフライン永続（任意）
+    - `PERSIST_DIR=tmp/state`（ローカルのディスク永続先。再起動後も依頼/Outboxを保持）
 
 ## ディレクトリ
 

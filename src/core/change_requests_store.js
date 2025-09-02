@@ -74,3 +74,31 @@ export function set_checks(id, checks) {
   save_state();
   return rec;
 }
+
+// Upsert from external (e.g., Supabase) shape
+export function upsert_change_request(row) {
+  try {
+    if (!row || !row.id) return null;
+    const id = row.id;
+    const exists = store.get(id) || {};
+    const rec = {
+      id,
+      status: row.status || exists.status || 'submitted',
+      created_at: row.created_at || exists.created_at || new Date().toISOString(),
+      updated_at: row.updated_at || exists.updated_at || row.created_at || new Date().toISOString(),
+      payload: {
+        location_id: row.location_id || exists.payload?.location_id || null,
+        changes: row.changes || exists.payload?.changes || {},
+        owner_signoff: typeof row.owner_signoff === 'boolean' ? row.owner_signoff : (exists.payload?.owner_signoff || false),
+      },
+      checks: row.checks || exists.checks || {},
+      review_note: row.review_note || exists.review_note || null,
+      created_by_email: row.created_by_email || exists.created_by_email || null,
+    };
+    store.set(id, rec);
+    save_state();
+    return rec;
+  } catch {
+    return null;
+  }
+}

@@ -59,6 +59,10 @@ NODE_ENV=development DEV_RELOAD=1 NOTIFY_PROVIDER=console \
 - 依頼作成/更新で Outbox が `owner_change_requests` と `audit_logs` に書き込む
 - 通知は `notifications` に記録される
 
+補足（オフライン永続）
+- `PERSIST_DIR`（既定: `tmp/state`）に `change_requests.json` と `outbox.json` を保存
+- 再起動後も依頼とOutboxが保持されるため、DB未接続でも操作が安定
+
 ## 8) セキュリティ（本番準備）
 - `COOKIE_SECURE=1` でSet-CookieにSecureが付く
 - `ALLOWED_ORIGINS="https://example.com"` を設定し、Originが一致しない場合にCORSが無効になることを確認

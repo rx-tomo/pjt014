@@ -16,7 +16,7 @@ import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
 import { get_owned_location_ids } from './memberships_stub.js';
-import { create_change_request, list_change_requests, set_status, get_change_request, set_checks, set_status_and_reason } from './change_requests_store.js';
+import { create_change_request, list_change_requests, set_status, get_change_request, set_checks, set_status_and_reason, upsert_change_request } from './change_requests_store.js';
 import { notify, buildChangeRequestNotification } from './notifier.js';
 import { check_changes } from './compliance_stub.js';
 
@@ -93,7 +93,7 @@ function json(res, status, data) {
         '</span>'
       : '';
     const roleHighlightScript = dev
-      ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w&&r){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=" ("+r+")";cur.style.color="#c30";}}}catch(e){}})();</script>'
+      ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=r?" ("+r+")":"";cur.style.color="#c30";}var hb=document.getElementById("__health_bar");if(hb){fetch("/api/health").then(function(x){return x.json()}).then(function(j){if(j&&j.ok){var rt=j.runtime||{};hb.textContent=(rt.supabase_configured?"DB:on":"DB:off")+" | Outbox:"+(rt.outbox_len||0);}}).catch(function(){})}}catch(e){}})();</script>'
       : '';
     return `
       <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">
@@ -102,6 +102,7 @@ function json(res, status, data) {
         <a href="/owner">Owner Portal</a> |
         <a href="/review">Review Queue</a>
         ${roleSwitch}
+        <span id="__health_bar" style="float:right; margin-right:8px; color:#555"></span>
       </nav>${roleHighlightScript}
     `;
   }
@@ -367,11 +368,14 @@ export function create_server() {
             }
           }
         } catch {}
+        const outboxLen = (globalThis.__pjt014_outbox || []).length;
+        const storeCount = (()=>{ try { return list_change_requests().length; } catch { return null; } })();
         return json(res, 200, {
           ok: true,
           config: { google_configured: googleConfigured },
           session: { authenticated, email, token_seconds_left: left },
           persistence,
+          runtime: { outbox_len: outboxLen, store_count: storeCount, supabase_configured: supabaseEnabled() },
         });
       }
 
@@ -571,6 +575,8 @@ export function create_server() {
             const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''), { method: 'GET' }, 600);
             const arr = r.ok ? await r.json() : [];
             if (Array.isArray(arr) && arr.length) {
+              // read-through cache: sync into local store
+              try { for (const it of arr) upsert_change_request(it); } catch {}
               return json(res, 200, { ok: true, items: arr });
             }
           } catch {}
@@ -590,7 +596,7 @@ export function create_server() {
             if (r.ok) {
               const arr = await r.json();
               const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
-              if (item) return json(res, 200, { ok: true, item });
+              if (item) { try { upsert_change_request(item); } catch {} return json(res, 200, { ok: true, item }); }
             }
           } catch {}
         }
@@ -1342,3 +1348,19 @@ if (is_main) {
     console.log(`[server] listening on http://${host}:${DEFAULT_PORT}`);
   });
 }
+      if (method === 'GET' && pathname === '/api/health') {
+        try {
+          const outboxLen = (globalThis.__pjt014_outbox || []).length;
+          const storeCount = (()=>{ try { return list_change_requests().length; } catch { return null; } })();
+          return json(res, 200, {
+            ok: true,
+            runtime: {
+              supabase_configured: supabaseEnabled(),
+              outbox_len: outboxLen,
+              store_count: storeCount,
+            }
+          });
+        } catch {
+          return json(res, 500, { ok: false });
+        }
+      }
