@@ -839,7 +839,7 @@ export function create_server() {
         const allowed = email ? new Set(get_owned_location_ids(email)) : new Set();
         const source = get_locations();
         const items = source.filter(it => allowed.has(it.id));
-        const li = items.map(it=>`<li><a href="/owner/${it.id}">${it.name}</a> - ${it.address||''}</li>`).join('');
+        const li = items.map(it=>('<li><a href="/owner/'+it.id+'">'+it.name+'</a> - '+(it.address||'')+'</li>')).join('');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
           <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
         </head><body>
@@ -961,7 +961,7 @@ export function create_server() {
                   const nf = arr.find(x=>x.status==='needs_fix' && (x.review_note||'').trim().length>0);
                   const el = document.getElementById('last_reason');
                   if (nf) {
-                    const key = 'pjt014:last_seen_reason:${loc.id}';
+                    const key = 'pjt014:last_seen_reason:' + ${JSON.stringify(loc.id)};
                     const lastSeen = localStorage.getItem(key) || '';
                     const created = nf.created_at || '';
                     const isNew = created && created !== lastSeen;
@@ -1166,7 +1166,7 @@ export function create_server() {
                 if(!j.ok){ el.textContent='取得に失敗しました'; return; }
                 const arr = j.items||[];
                 if(!arr.length){ el.textContent='記録なし'; return; }
-                el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(a=>`<li><code>${a.created_at||''}</code> ${a.action||''} by ${a.actor_email||'-'}</li>`).join('')+'</ul>';
+                el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(function(a){ return '<li><code>'+(a.created_at||'')+'</code> '+(a.action||'')+' by '+(a.actor_email||'-')+'</li>'; }).join('')+'</ul>';
               }catch{ document.getElementById('audit').textContent='監査取得エラー'; }
             }
             document.getElementById('checks').onsubmit = async (e)=>{
