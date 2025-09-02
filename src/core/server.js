@@ -95,14 +95,15 @@ function json(res, status, data) {
     const roleHighlightScript = dev
       ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w&&r){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=" ("+r+")";cur.style.color="#c30";}}}catch(e){}})();</script>'
       : '';
-    return '
-      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">\
-        <a href="/">Home</a> |\
-        <a href="/locations">Locations</a> |\
-        <a href="/owner">Owner Portal</a> |\
-        <a href="/review">Review Queue</a>\
-        '+roleSwitch+'\
-      </nav>'+roleHighlightScript;
+    return `
+      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">
+        <a href="/">Home</a> |
+        <a href="/locations">Locations</a> |
+        <a href="/owner">Owner Portal</a> |
+        <a href="/review">Review Queue</a>
+        ${roleSwitch}
+      </nav>${roleHighlightScript}
+    `;
   }
 
   function seconds_left(session) {
