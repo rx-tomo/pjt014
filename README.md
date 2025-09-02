@@ -48,6 +48,8 @@
 - `GET /api/gbp/oauth` OAuth開始（スタブ応答）
 - `GET /api/dashboard` ダッシュボード用の集約JSON（セッション・Supabaseの最新保存など）
 - `GET /jobs` ジョブUIプレースホルダー
+ - 監査ログ
+   - `GET /api/audits?entity=change_request&id=<id>` 監査ログ取得（メモリ or Supabase）
 
 - 変更依頼（Owner/Review フロー）
   - `GET /api/change-requests` 一覧（`?location_id=` で絞り込み）
@@ -55,6 +57,7 @@
   - `POST /api/change-requests` 作成（必須: `location_id`。任意: `phone,hours,url,description,photo_url,owner_signoff`）
   - `POST /api/change-requests/:id/status` ステータス更新（`submitted|in_review|needs_fix|approved|syncing|synced|failed`）
   - `POST /api/change-requests/:id/checks` レビューチェック保存（JSONブール群）
+   - `GET /api/change-requests/:id/compliance` 自動チェック結果
   - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）
 
 ### コンプライアンス設定

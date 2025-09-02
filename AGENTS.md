@@ -44,3 +44,4 @@
   - 「gitして『スタイル修正の途中』」 → `chore: スタイル修正の途中`
   - 「この3ファイルだけ gitして『一時保存』: app/page.tsx lib/ui/button.ts src/hooks/useFoo.ts」
   - 「コミットだけして『WIP: ルーティング調整』」 → push なし
+

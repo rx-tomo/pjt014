@@ -64,6 +64,22 @@ function json(res, status, data) {
     } catch {}
   }
 
+  // --- Minimal in-memory audit log + optional Supabase outbox ---
+  const AUDIT = globalThis.__pjt014_audits || (globalThis.__pjt014_audits = []);
+  function record_audit(evt) {
+    const rec = Object.assign({
+      id: randomUUID(),
+      created_at: new Date().toISOString(),
+    }, evt || {});
+    try { AUDIT.push(rec); } catch {}
+    try {
+      if (supabaseEnabled()) {
+        enqueueOutbox({ type: 'insert_audit_log', data: rec });
+      }
+    } catch {}
+    return rec;
+  }
+
   // Simple top navigation to clarify who each screen is for
   function header_nav() {
     const dev = DEV_ENABLED;
@@ -387,7 +403,7 @@ export function create_server() {
         for (const task of OUTBOX.slice()) {
           if (task.nextAt > now) continue;
           try {
-            if (task.type === 'insert_change_request') {
+          if (task.type === 'insert_change_request') {
               const payload = [{
                 id: task.data.id,
                 location_id: task.data.location_id,
@@ -406,6 +422,27 @@ export function create_server() {
                 continue;
               }
               throw new Error('persist_failed:'+r.status);
+            }
+            if (task.type === 'insert_audit_log') {
+              const payload = [{
+                id: task.data.id,
+                entity: task.data.entity,
+                entity_id: task.data.entity_id,
+                action: task.data.action,
+                actor_email: task.data.actor_email || null,
+                meta: task.data.meta || {},
+                created_at: task.data.created_at,
+              }];
+              const r = await sbFetch('/rest/v1/audit_logs', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+                body: JSON.stringify(payload),
+              }, 1500);
+              if (r.ok || r.status === 409) {
+                OUTBOX.splice(OUTBOX.indexOf(task), 1);
+                continue;
+              }
+              throw new Error('audit_persist_failed:'+r.status);
             }
             if (task.type === 'patch_change_request') {
               const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(task.id)}`, {
@@ -550,6 +587,8 @@ export function create_server() {
           });
           // Outbox: 後続でSupabaseに非同期保存（リトライあり）
           enqueueOutbox({ type: 'insert_change_request', data: { id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false), created_by_email: email } });
+          // Audit: 作成
+          record_audit({ entity: 'change_request', entity_id: rec.id, action: 'created', actor_email: email, meta: { location_id: body.location_id } });
           return json(res, 201, { ok: true, id: rec.id });
         } catch (e) {
           return json(res, 400, { ok: false, error: 'invalid_json' });
@@ -567,6 +606,17 @@ export function create_server() {
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
           // Outbox: 状態更新を非同期保存
           enqueueOutbox({ type: 'patch_change_request', id, patch: { status: st } });
+          // Audit: 状態変更
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const secret = process.env.APP_SECRET || 'dev_secret';
+            const sidSigned = parsed.sid;
+            const sid = sidSigned ? verify_value(sidSigned, secret) : null;
+            const session = sid ? get_session(sid) : null;
+            const email = session?.user?.email || null;
+            record_audit({ entity: 'change_request', entity_id: id, action: `status:${st}`, actor_email: email || null, meta: {} });
+          } catch {}
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
@@ -586,6 +636,17 @@ export function create_server() {
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
           // Outbox: チェック保存を非同期保存
           enqueueOutbox({ type: 'patch_change_request', id, patch: { checks: body || {} } });
+          // Audit: チェック保存
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const secret = process.env.APP_SECRET || 'dev_secret';
+            const sidSigned = parsed.sid;
+            const sid = sidSigned ? verify_value(sidSigned, secret) : null;
+            const session = sid ? get_session(sid) : null;
+            const email = session?.user?.email || null;
+            record_audit({ entity: 'change_request', entity_id: id, action: 'checks_saved', actor_email: email || null, meta: {} });
+          } catch {}
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
@@ -614,6 +675,26 @@ export function create_server() {
       if (method === 'GET' && pathname === '/jobs') {
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body>${header_nav()}<h1>Jobs UI (placeholder)</h1></body></html>`;
         return html(res, 200, page + dev_reload_script());
+      }
+
+      // API: audit logs (simple viewer)
+      if (method === 'GET' && pathname === '/api/audits') {
+        const e = (query?.entity || '').toString();
+        const eid = (query?.id || '').toString();
+        // Prefer Supabase when available and filters provided
+        if (supabaseEnabled() && e && eid) {
+          try {
+            const qs = `entity=eq.${encodeURIComponent(e)}&entity_id=eq.${encodeURIComponent(eid)}&order=created_at.desc&limit=50`;
+            const r = await sbFetch(`/rest/v1/audit_logs?${qs}`, { method: 'GET' }, 800);
+            if (r.ok) {
+              const items = await r.json();
+              return json(res, 200, { ok: true, items });
+            }
+          } catch {}
+        }
+        // Fallback to in-memory filtered view
+        const items = AUDIT.filter(x => (!e || x.entity===e) && (!eid || x.entity_id===eid)).slice(-50).reverse();
+        return json(res, 200, { ok: true, items });
       }
 
       if (method === 'GET' && pathname === '/login') {
@@ -918,6 +999,8 @@ export function create_server() {
           </form>
           <p id="msg"></p>
           <p id="owner"></p>
+          <h2>監査ログ</h2>
+          <div id="audit" style="border:1px solid #eee;padding:8px;border-radius:6px;color:#555">loading...</div>
           <p>
             <button id="approve">承認（approved）</button>
             <button id="needs_fix">差戻し（needs_fix）</button>
@@ -954,6 +1037,16 @@ export function create_server() {
                 el.innerHTML = rows.length? rows.map(r=>'<div style="color:#900">'+r+'</div>').join('') : '<div style="color:#090">自動チェック: 問題なし</div>';
               }catch{ document.getElementById('auto').textContent='自動チェックエラー'; }
             }
+            async function loadAudit(){
+              try{
+                const j = await (await fetch('/api/audits?entity=change_request&id=${id}')).json();
+                const el = document.getElementById('audit');
+                if(!j.ok){ el.textContent='取得に失敗しました'; return; }
+                const arr = j.items||[];
+                if(!arr.length){ el.textContent='記録なし'; return; }
+                el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(a=>`<li><code>${a.created_at||''}</code> ${a.action||''} by ${a.actor_email||'-'}</li>`).join('')+'</ul>';
+              }catch{ document.getElementById('audit').textContent='監査取得エラー'; }
+            }
             document.getElementById('checks').onsubmit = async (e)=>{
               e.preventDefault(); const f=new FormData(e.target); const obj={}; for(const [k,v] of f.entries()){ obj[k]=true; }
               try{
@@ -971,7 +1064,7 @@ export function create_server() {
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
-            loadItem(); loadAuto();
+            loadItem(); loadAuto(); loadAudit();
           </script>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());
