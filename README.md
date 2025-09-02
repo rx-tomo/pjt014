@@ -103,6 +103,11 @@
 - 営業テンプレ（参考）: `docs/product/SALES_TEMPLATES.md`
 - コンプライアンス指針: `docs/product/COMPLIANCE.md`
 
+## 実装仕様・検証手順（開発）
+
+- 変更依頼仕様まとめ: `docs/specs/CHANGE_REQUESTS.md`
+- 挙動確認チェックリスト: `docs/ops/VERIFICATION.md`
+
 ## テスト
 
 Node 22 の `node --test` を使用。`make test` で実行できます。
