@@ -33,6 +33,17 @@ export function set_status(id, status) {
   return rec;
 }
 
+export function set_status_and_reason(id, status, reason) {
+  const rec = store.get(id);
+  if (!rec) return null;
+  rec.status = status;
+  if (typeof reason === 'string') {
+    rec.review_note = reason;
+  }
+  rec.updated_at = new Date().toISOString();
+  return rec;
+}
+
 export function set_checks(id, checks) {
   const rec = store.get(id);
   if (!rec) return null;

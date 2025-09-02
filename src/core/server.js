@@ -16,7 +16,7 @@ import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
 import { get_owned_location_ids } from './memberships_stub.js';
-import { create_change_request, list_change_requests, set_status, get_change_request, set_checks } from './change_requests_store.js';
+import { create_change_request, list_change_requests, set_status, get_change_request, set_checks, set_status_and_reason } from './change_requests_store.js';
 import { check_changes } from './compliance_stub.js';
 
 const DEFAULT_PORT = Number(process.env.PORT || 3014);
@@ -602,10 +602,16 @@ export function create_server() {
           if (!['submitted','in_review','needs_fix','approved','syncing','synced','failed'].includes(st)) {
             return json(res, 400, { ok: false, error: 'invalid_status' });
           }
-          const rec = set_status(id, st);
+          const reason = (typeof body?.reason === 'string' ? body.reason.trim() : '');
+          if (st === 'needs_fix' && reason.length < 3) {
+            return json(res, 400, { ok: false, error: 'invalid_reason' });
+          }
+          const rec = reason ? set_status_and_reason(id, st, reason) : set_status(id, st);
           if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
           // Outbox: 状態更新を非同期保存
-          enqueueOutbox({ type: 'patch_change_request', id, patch: { status: st } });
+          const patch = { status: st };
+          if (st === 'needs_fix' && reason) patch.review_note = reason;
+          enqueueOutbox({ type: 'patch_change_request', id, patch });
           // Audit: 状態変更
           try {
             const cookies = req.headers.cookie || '';
@@ -615,7 +621,7 @@ export function create_server() {
             const sid = sidSigned ? verify_value(sidSigned, secret) : null;
             const session = sid ? get_session(sid) : null;
             const email = session?.user?.email || null;
-            record_audit({ entity: 'change_request', entity_id: id, action: `status:${st}`, actor_email: email || null, meta: {} });
+            record_audit({ entity: 'change_request', entity_id: id, action: `status:${st}`, actor_email: email || null, meta: reason ? { reason } : {} });
           } catch {}
           return json(res, 200, { ok: true });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
@@ -999,6 +1005,10 @@ export function create_server() {
           </form>
           <p id="msg"></p>
           <p id="owner"></p>
+          <div class="card" style="border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
+            <h3>差戻し理由（needs_fix時に必須）</h3>
+            <textarea id="reason" rows="3" style="width:100%" placeholder="例: 診療内容の表現に修正が必要です。具体的に…"></textarea>
+          </div>
           <h2>監査ログ</h2>
           <div id="audit" style="border:1px solid #eee;padding:8px;border-radius:6px;color:#555">loading...</div>
           <p>
@@ -1057,7 +1067,13 @@ export function create_server() {
             };
             async function setStatus(st){
               try{
-                const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ status: st })});
+                const payload = { status: st };
+                if (st === 'needs_fix') {
+                  const reason = (document.getElementById('reason').value || '').trim();
+                  if (!reason || reason.length < 3) { document.getElementById('msg').textContent='差戻し理由を入力してください'; return; }
+                  payload.reason = reason;
+                }
+                const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(payload)});
                 const j = await r.json();
                 document.getElementById('msg').textContent = j.ok? ('状態を '+st+' に更新しました') : '更新に失敗しました';
               }catch{ document.getElementById('msg').textContent='更新エラー'; }
