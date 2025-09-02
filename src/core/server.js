@@ -1174,6 +1174,7 @@ export function create_server() {
             <div style="margin-top:6px;color:#555">補足：オーナー確認の有無も表示されます。</div>
           </div>
           <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee">loading...</pre>
+          <div id="err" style="color:#900"></div>
           <h2>コンプライアンス（自動チェック・簡易）</h2>
           <div id="auto">loading...</div>
           <h2>チェックリスト</h2>
@@ -1200,8 +1201,14 @@ export function create_server() {
           <script>
             async function loadItem(){
               try{
-                const j = await (await fetch('/api/change-requests/${id}')).json();
-                if(!j.ok){ document.getElementById('payload').textContent = 'not found'; return; }
+                const res = await fetch('/api/change-requests/${id}');
+                let j=null; let parseErr=null; try{ j=await res.json(); }catch(e){ parseErr=e; }
+                if(!res.ok || !j || j.ok===false){
+                  document.getElementById('payload').textContent = 'not found';
+                  document.getElementById('cur_status').textContent = 'Status: not_found';
+                  document.getElementById('err').textContent = '取得に失敗しました (HTTP '+res.status+(parseErr?' parse error':'')+')';
+                  return;
+                }
                 const item = j.item;
                 document.getElementById('loc').textContent = item.location_id || '';
                 document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
@@ -1272,8 +1279,13 @@ export function create_server() {
                   payload.reason = reason;
                 }
                 const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(payload)});
-                const j = await r.json();
-                document.getElementById('msg').textContent = j.ok? ('状態を '+st+' に更新しました') : '更新に失敗しました';
+                let j=null; let parseErr=null; try{ j=await r.json(); }catch(e){ parseErr=e; }
+                if (r.ok && j && j.ok) {
+                  document.getElementById('msg').textContent = '状態を '+st+' に更新しました';
+                  document.getElementById('cur_status').textContent = 'Status: '+st;
+                } else {
+                  document.getElementById('msg').textContent = '更新に失敗しました (HTTP '+r.status+(parseErr?' parse error':'')+')';
+                }
               }catch{ document.getElementById('msg').textContent='更新エラー'; }
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
