@@ -85,21 +85,24 @@ function json(res, status, data) {
   function header_nav() {
     const dev = DEV_ENABLED;
     const roleSwitch = dev
-      ? `<span style="float:right; color:#555">Role: 
-           <a href="/__dev/impersonate?role=owner">Owner</a> |
-           <a href="/__dev/impersonate?role=reviewer">Reviewer</a> |
-           <a href="/__dev/impersonate?role=admin">Admin</a>
-         </span>`
+      ? '<span id="__role_switch" style="float:right; color:#555">Role: '+
+        '<a data-role="owner" href="/__dev/impersonate?role=owner">Owner</a> | '+
+        '<a data-role="reviewer" href="/__dev/impersonate?role=reviewer">Reviewer</a> | '+
+        '<a data-role="admin" href="/__dev/impersonate?role=admin">Admin</a>'+ 
+        '<span id="__role_current"></span>'+ 
+        '</span>'
       : '';
-    return `
-      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">
-        <a href="/">Home</a> |
-        <a href="/locations">Locations</a> |
-        <a href="/owner">Owner Portal</a> |
-        <a href="/review">Review Queue</a>
-        ${roleSwitch}
-      </nav>
-    `;
+    const roleHighlightScript = dev
+      ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w&&r){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=" ("+r+")";cur.style.color="#c30";}}}catch(e){}})();</script>'
+      : '';
+    return '
+      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">\
+        <a href="/">Home</a> |\
+        <a href="/locations">Locations</a> |\
+        <a href="/owner">Owner Portal</a> |\
+        <a href="/review">Review Queue</a>\
+        '+roleSwitch+'\
+      </nav>'+roleHighlightScript;
   }
 
   function seconds_left(session) {
@@ -532,6 +535,16 @@ export function create_server() {
           if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
           const allowed = new Set(get_owned_location_ids(email));
           if (!allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+        } else {
+          // 全件一覧はレビュアーのみ（dev時の簡易ガード）
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const role = (parsed.role || '').toString();
+            if (DEV_ENABLED && role !== 'reviewer') {
+              return json(res, 403, { ok: false, error: 'forbidden' });
+            }
+          } catch {}
         }
         if (supabaseEnabled()) {
           try {
@@ -1017,7 +1030,8 @@ export function create_server() {
                     const lastSeen = localStorage.getItem(key) || '';
                     const created = nf.created_at || '';
                     const isNew = created && created !== lastSeen;
-                    el.innerHTML = (isNew? '<b style="background:#ff0;color:#900;padding:0 6px;margin-right:6px">新着</b>' : '') + '最新の差戻し理由: ' + (nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>' + (isNew? ' <button id="mark_seen" style="margin-left:6px">既読にする</button>' : '');
+                    function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+                    el.innerHTML = (isNew? '<b style="background:#ff0;color:#900;padding:0 6px;margin-right:6px">新着</b>' : '') + '最新の差戻し理由: ' + esc(nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>' + (isNew? ' <button id="mark_seen" style="margin-left:6px">既読にする</button>' : '');
                     const btn = document.getElementById('mark_seen'); if(btn) btn.onclick = ()=>{ localStorage.setItem(key, created||''); el.innerHTML = '最新の差戻し理由: ' + (nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>'; };
                   } else {
                     el.textContent = '';
@@ -1236,7 +1250,8 @@ export function create_server() {
                 if(!j.ok){ el.textContent='取得に失敗しました'; return; }
                 const arr = j.items||[];
                 if(!arr.length){ el.textContent='記録なし'; return; }
-                el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(function(a){ return '<li><code>'+(a.created_at||'')+'</code> '+(a.action||'')+' by '+(a.actor_email||'-')+'</li>'; }).join('')+'</ul>';
+                function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+                el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(function(a){ return '<li><code>'+esc(a.created_at||'')+'</code> '+esc(a.action||'')+' by '+esc(a.actor_email||'-')+'</li>'; }).join('')+'</ul>';
               }catch{ document.getElementById('audit').textContent='監査取得エラー'; }
             }
             document.getElementById('checks').onsubmit = async (e)=>{
