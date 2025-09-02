@@ -413,11 +413,23 @@ export function create_server() {
         }
       }
 
-      // --- Outbox: 非同期保存の再送キュー（メモリ） ---
+      // --- Outbox: 非同期保存の再送キュー（メモリ + ディスク永続） ---
       const OUTBOX = globalThis.__pjt014_outbox || (globalThis.__pjt014_outbox = []);
+      const { persist_dir, load_json, save_json_atomic } = await import('./persist.js');
+      const OUTBOX_FILE = path.join(persist_dir(), 'outbox.json');
+      function outbox_save() { try { save_json_atomic(OUTBOX_FILE, OUTBOX); } catch {} }
+      // bootstrap from disk once
+      if (!globalThis.__pjt014_outbox_loaded) {
+        try {
+          const arr = load_json(OUTBOX_FILE, []);
+          if (Array.isArray(arr) && arr.length) { OUTBOX.push(...arr); }
+        } catch {}
+        globalThis.__pjt014_outbox_loaded = true;
+      }
       function enqueueOutbox(task) {
         const now = Date.now();
         OUTBOX.push({ ...task, attempts: 0, nextAt: now });
+        outbox_save();
       }
       let OUTBOX_TIMER = globalThis.__pjt014_outbox_timer || null;
       async function processOutboxTick() {
@@ -442,6 +454,7 @@ export function create_server() {
               }, 1500);
               if (r.ok || r.status === 409) {
                 OUTBOX.splice(OUTBOX.indexOf(task), 1);
+                outbox_save();
                 continue;
               }
               throw new Error('persist_failed:'+r.status);
@@ -473,10 +486,11 @@ export function create_server() {
               headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
               body: JSON.stringify(task.patch || {}),
             }, 1500);
-            if (r.ok) {
-              OUTBOX.splice(OUTBOX.indexOf(task), 1);
-              continue;
-            }
+              if (r.ok) {
+                OUTBOX.splice(OUTBOX.indexOf(task), 1);
+                outbox_save();
+                continue;
+              }
             throw new Error('patch_failed:'+r.status);
           }
           if (task.type === 'insert_notification') {
@@ -491,10 +505,11 @@ export function create_server() {
                 status: task.data.status || 'queued'
               }]),
             }, 1500);
-            if (r.ok) {
-              OUTBOX.splice(OUTBOX.indexOf(task), 1);
-              continue;
-            }
+              if (r.ok) {
+                OUTBOX.splice(OUTBOX.indexOf(task), 1);
+                outbox_save();
+                continue;
+              }
             throw new Error('notification_persist_failed:'+r.status);
           }
           } catch (e) {
