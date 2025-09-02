@@ -18,6 +18,9 @@ NODE_ENV=development DEV_RELOAD=1 NOTIFY_PROVIDER=console \
 ## 1) Owner: 依頼作成
 - ブラウザ: `http://localhost:3014/owner`
 - devメニュー右上から Role=owner を設定（`/__dev/impersonate?role=owner`）
+- 注意: devのOwnerは許可されたロケーションのみ編集可能（既定は `owner1@example.com` → `loc1`）。他のIDを使う場合は環境変数で上書き:
+  - `DEV_OWNER_EMAIL=you@example.com`
+  - `DEV_OWNER_LOCATIONS=loc1,loc2`
 - ロケーションを選択 → フォーム入力
   - 説明にNGワードを入れると自動チェックで警告
   - チェックボックス「オーナーによる内容確認」をON
@@ -63,4 +66,3 @@ NODE_ENV=development DEV_RELOAD=1 NOTIFY_PROVIDER=console \
 トラブルシュート
 - Outboxの再送は指数バックオフで実施。サーバログの `[outbox]` を参照
 - Supabaseエラーは `[sb]` ログにHTTPステータスや遅延が出力
-

@@ -513,17 +513,22 @@ export function create_server() {
         if (locId) {
           // 所有者のみ該当ロケーションの一覧にアクセス可能
           let session = null;
+          let devRole = null;
           try {
             const cookies = req.headers.cookie || '';
             const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
             const secret = process.env.APP_SECRET || 'dev_secret';
+            devRole = (parsed.role || '').toString();
             const sidSigned = parsed.sid;
             if (sidSigned) {
               const sid = verify_value(sidSigned, secret);
               if (sid) session = get_session(sid);
             }
           } catch {}
-          const email = session?.user?.email || null;
+          let email = session?.user?.email || null;
+          if (!email && DEV_ENABLED && devRole === 'owner') {
+            email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+          }
           if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
           const allowed = new Set(get_owned_location_ids(email));
           if (!allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
@@ -585,17 +590,22 @@ export function create_server() {
           }
           // 認可: 所属ロケーションのみ作成可能
           let session = null;
+          let devRole = null;
           try {
             const cookies = req.headers.cookie || '';
             const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
             const secret = process.env.APP_SECRET || 'dev_secret';
+            devRole = (parsed.role || '').toString();
             const sidSigned = parsed.sid;
             if (sidSigned) {
               const sid = verify_value(sidSigned, secret);
               if (sid) session = get_session(sid);
             }
           } catch {}
-          const email = session?.user?.email || null;
+          let email = session?.user?.email || null;
+          if (!email && DEV_ENABLED && devRole === 'owner') {
+            email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+          }
           if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
           const allowed = new Set(get_owned_location_ids(email));
           if (!allowed.has(body.location_id)) return json(res, 403, { ok: false, error: 'forbidden' });
@@ -863,17 +873,19 @@ export function create_server() {
           const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
           const secret = process.env.APP_SECRET || 'dev_secret';
           const sidSigned = parsed.sid;
+          let email = null;
           if (sidSigned) {
             const sid = verify_value(sidSigned, secret);
             const session = sid ? get_session(sid) : null;
-            const email = session?.user?.email || null;
-            if (email) {
-              const allowed = new Set(get_owned_location_ids(email));
-              if (!allowed.has(id || '')) {
-                return html(res, 403, '<!doctype html><html><body><h1>Forbidden</h1><p>このロケーションを編集する権限がありません。</p></body></html>');
-              }
-            } else {
-              res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
+            email = session?.user?.email || null;
+          }
+          if (!email && DEV_ENABLED && (parsed.role||'') === 'owner') {
+            email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+          }
+          if (email) {
+            const allowed = new Set(get_owned_location_ids(email));
+            if (!allowed.has(id || '')) {
+              return html(res, 403, '<!doctype html><html><body><h1>Forbidden</h1><p>このロケーションを編集する権限がありません。</p></body></html>');
             }
           } else {
             res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
