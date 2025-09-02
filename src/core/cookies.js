@@ -49,6 +49,7 @@ export function set_cookie(res, name, value, opts = {}) {
   res.setHeader('Set-Cookie', [...(res.getHeader('Set-Cookie') || []), parts.join('; ')]);
 }
 
-export function clear_cookie(res, name) {
-  set_cookie(res, name, '', { maxAge: 0, path: '/' });
+export function clear_cookie(res, name, opts = {}) {
+  const { secure = false } = opts || {};
+  set_cookie(res, name, '', { maxAge: 0, path: '/', secure });
 }

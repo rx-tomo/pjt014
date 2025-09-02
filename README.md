@@ -33,6 +33,10 @@
 
 `.env.example` を `.env` にコピーし、必要な値を設定してください。秘密情報はコミットしないでください。
 
+- 追加（本番向け）
+  - `COOKIE_SECURE=1`（推奨。本番HTTPS配下でCookieにSecure付与。未指定時はproductionで自動ON）
+  - `ALLOWED_ORIGINS="https://example.com,https://admin.example.com"`（指定時はCORSをこれらに限定。未指定ならワイドオープン）
+
 ## ディレクトリ
 
 - `src/` アプリ本体（ドメイン別: `src/auth/`, `src/core/` など）

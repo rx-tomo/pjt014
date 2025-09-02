@@ -11,7 +11,7 @@ import {
   handle_oauth_refresh,
 } from '../auth/oauth_routes.js';
 import { parse as parseUrl } from 'node:url';
-import { parse_cookies, verify_value } from './cookies.js';
+import { parse_cookies, verify_value, set_cookie } from './cookies.js';
 import { get_session } from './session_store.js';
 import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
@@ -121,8 +121,22 @@ export function create_server() {
     const reqId = randomUUID().slice(0, 8);
     try { res.setHeader('x-request-id', reqId); } catch {}
 
-    // CORS (シンプルに許可)
-    res.setHeader('access-control-allow-origin', '*');
+    // CORS: 許可オリジンの制御（ENV: ALLOWED_ORIGINS="https://a.com,https://b.com"）
+    try {
+      const allowEnv = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
+      const origin = (req.headers.origin || '').toString();
+      if (allowEnv.length && origin && allowEnv.includes(origin)) {
+        res.setHeader('access-control-allow-origin', origin);
+        res.setHeader('vary', 'Origin');
+      } else if (allowEnv.length) {
+        // 限定モードで不一致 → 明示的にnull（ブラウザは利用不可）
+        res.setHeader('access-control-allow-origin', 'null');
+        res.setHeader('vary', 'Origin');
+      } else {
+        // 既定: ワイドオープン（MVP開発用）
+        res.setHeader('access-control-allow-origin', '*');
+      }
+    } catch { res.setHeader('access-control-allow-origin', '*'); }
     res.setHeader('access-control-allow-headers', 'content-type, authorization');
     res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
     if (method === 'OPTIONS') {
@@ -167,9 +181,13 @@ export function create_server() {
           if (!allowed.has(role)) {
             res.statusCode = 400; res.end('invalid role'); return;
           }
-          res.setHeader('set-cookie', [
-            `role=${encodeURIComponent(role)}; Path=/; HttpOnly; SameSite=Lax`,
-          ]);
+          const SECURE = (function(){
+            const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
+            if (v === '1' || v === 'true' || v === 'yes') return true;
+            if (v === '0' || v === 'false' || v === 'no') return false;
+            return process.env.NODE_ENV === 'production';
+          })();
+          set_cookie(res, 'role', role, { httpOnly: true, sameSite: 'Lax', secure: SECURE, path: '/' });
           const ref = req.headers.referer || '/';
           res.statusCode = 302; res.setHeader('location', ref); return res.end();
         } catch {
