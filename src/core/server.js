@@ -660,7 +660,7 @@ export function create_server() {
           const exists = OUTBOX.find(t => t.type === 'insert_notification' && JSON.stringify({ target: t.data?.target||null, subject: t.data?.subject||null, ch: t.data?.channel||'change_request' }) === sig);
           if (exists) return;
         }
-        OUTBOX.push({ ...task, attempts: 0, nextAt: now });
+        OUTBOX.push({ ...task, attempts: 0, nextAt: now, status: 'queued', lastError: null });
         outbox_save();
       }
       let OUTBOX_TIMER = globalThis.__pjt014_outbox_timer || null;
@@ -670,6 +670,7 @@ export function create_server() {
         for (const task of OUTBOX.slice()) {
           if (task.nextAt > now) continue;
           try {
+          task.status = task.attempts > 0 ? 'retrying' : 'queued';
           if (task.type === 'insert_change_request') {
               const payload = [{
                 id: task.data.id,
@@ -746,9 +747,17 @@ export function create_server() {
           }
         } catch (e) {
           task.attempts += 1;
-          const backoff = Math.min(60000, 1000 * Math.pow(2, Math.min(8, task.attempts - 1)));
-          task.nextAt = Date.now() + backoff;
-          console.warn('[outbox] retry in', backoff, 'ms', e && e.message ? e.message : e);
+          task.lastError = e && e.message ? e.message : String(e);
+          const MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 9);
+          if (task.attempts >= MAX_ATTEMPTS) {
+            task.status = 'failed';
+            task.nextAt = Number.MAX_SAFE_INTEGER;
+            console.warn('[outbox] give up task', task.type, 'id=', (task.id||task.data?.id||'?'), 'after', task.attempts, 'attempts');
+          } else {
+            const backoff = Math.min(60000, 1000 * Math.pow(2, Math.min(8, task.attempts - 1)));
+            task.nextAt = Date.now() + backoff;
+            console.warn('[outbox] retry in', backoff, 'ms', task.lastError);
+          }
           outbox_save();
         }
       }
@@ -1047,6 +1056,69 @@ export function create_server() {
           const results = check_changes(changes);
           return json(res, 200, { ok: true, results });
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
+      }
+
+      // Sync state endpoint
+      if (method === 'GET' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/sync')) {
+        const id = pathname.split('/')[3];
+        if (!id) return json(res, 400, { ok: false, error: 'bad_request' });
+        try {
+          const tasks = (globalThis.__pjt014_outbox || []).filter(t => (t.data?.id===id) || (t.id===id));
+          let state = 'synced';
+          let attempts = 0;
+          let nextAt = null;
+          let lastError = null;
+          for (const t of tasks) {
+            attempts = Math.max(attempts, Number(t.attempts||0));
+            nextAt = Math.max(nextAt||0, Number(t.nextAt||0)) || null;
+            if (t.status === 'failed') { state = 'failed'; lastError = t.lastError || lastError; break; }
+            state = 'pending';
+            lastError = t.lastError || lastError;
+          }
+          return json(res, 200, { ok: true, state, attempts, nextAt, lastError });
+        } catch { return json(res, 200, { ok: true, state: 'synced' }); }
+      }
+
+      // Resync endpoint: re-enqueue for persistence
+      if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/resync')) {
+        if (!supabaseEnabled()) return json(res, 400, { ok: false, error: 'supabase_not_configured' });
+        const id = pathname.split('/')[3];
+        const rec = get_change_request(id || '');
+        if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+        // AuthZ: reviewer/admin か、オーナーの所属ロケーションのみ
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const role = (parsed.role || '').toString();
+          if (!(DEV_ENABLED && (role==='reviewer'||role==='admin'))) {
+            const locId = rec.payload?.location_id || null;
+            let email = null;
+            try {
+              const secret = process.env.APP_SECRET || 'dev_secret';
+              const sidSigned = parsed.sid;
+              if (sidSigned) { const sid = verify_value(sidSigned, secret); const session = sid ? get_session(sid) : null; email = session?.user?.email || null; }
+            } catch {}
+            if (!email && DEV_ENABLED && role==='owner') email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+            const allowed = email ? new Set(get_owned_location_ids(email)) : new Set();
+            if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+            if (!locId || !allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+          }
+        } catch {}
+        enqueueOutbox({ type: 'insert_change_request', data: {
+          id: rec.id,
+          location_id: rec.payload?.location_id || null,
+          changes: rec.payload?.changes || {},
+          status: rec.status,
+          owner_signoff: Boolean(rec.payload?.owner_signoff || false),
+          created_by_email: rec.created_by_email || null,
+        }});
+        enqueueOutbox({ type: 'patch_change_request', id: rec.id, patch: {
+          status: rec.status,
+          review_note: rec.review_note || null,
+          checks: rec.checks || {},
+          changes: rec.payload?.changes || {},
+        }});
+        return json(res, 200, { ok: true, enqueued: true });
       }
       if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/checks')) {
         if (!devRequireReviewer()) return json(res, 403, { ok: false, error: 'forbidden' });
@@ -1379,7 +1451,7 @@ export function create_server() {
             <div id="last_reason" style="margin:8px 0;color:#900"></div>
             <h2>依頼一覧（最新順, stub保存）</h2>
             <table>
-              <thead><tr><th>ID</th><th>Location</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead>
+              <thead><tr><th>ID</th><th>Location</th><th>Status</th><th>Sync</th><th>Reason</th><th>Created</th></tr></thead>
               <tbody id="reqs"></tbody>
             </table>
           </div>
@@ -1430,9 +1502,19 @@ export function create_server() {
                   const reason = (r.review_note||'');
                   const st = (r.status||'');
                   const reasonCell = reason ? ('<span style="color:#900">'+reason.replace(/</g,'&lt;')+'</span>') : '';
-                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+st+'</td><td>'+reasonCell+'</td><td>'+fmt(r.created_at||'')+'</td>';
+                  tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+st+'</td><td id="sync_'+r.id+'">loading...</td><td>'+reasonCell+'</td><td>'+fmt(r.created_at||'')+'</td>';
                   tb.appendChild(tr);
+                  try{
+                    fetch('/api/change-requests/'+encodeURIComponent(r.id)+'/sync').then(x=>x.json()).then(function(j){
+                      var el=document.getElementById('sync_'+r.id); if(!el) return; var s=j&&j.state||'synced';
+                      if(s==='pending'){ el.innerHTML='<span style="color:#c60">pending</span>'; }
+                      else if(s==='failed'){ el.innerHTML='<span style="color:#900">failed</span> <button data-id="'+r.id+'" class="rs">再送</button>'; }
+                      else { el.innerHTML='<span style="color:#090">synced</span>'; }
+                    }).catch(function(){ var el=document.getElementById('sync_'+r.id); if(el) el.textContent='n/a'; });
+                  }catch(e){ var el=document.getElementById('sync_'+r.id); if(el) el.textContent='n/a'; }
                 });
+                // 再送ボタン（イベント委譲）
+                tb.addEventListener('click', async function(ev){ var t=ev.target; if(t && t.classList && t.classList.contains('rs')){ var id=t.getAttribute('data-id'); t.disabled=true; try{ var r=await fetch('/api/change-requests/'+encodeURIComponent(id)+'/resync', { method:'POST' }); var j=await r.json(); if(j&&j.ok){ t.textContent='再送済'; } else { t.textContent='失敗'; } }catch(e){ t.textContent='失敗'; } }});
               }catch(e){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             async function liveCheck(){
@@ -1578,6 +1660,7 @@ export function create_server() {
           <p><a href="/review">← 承認キュー</a></p>
           <h1>レビュー（stub） - <span id="loc"></span></h1>
           <div id="cur_status" style="margin:6px 0;color:#555">Status: loading...</div>
+          <div id="sync_state" style="margin:6px 0;color:#555">Sync: loading...</div>
           <p style="color:#555">対象: レビュアー/承認者。できること: 自動チェックの確認、チェックリスト保存、状態更新（承認/差戻し）。</p>
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>
@@ -1615,6 +1698,7 @@ export function create_server() {
             <button id="start_review">レビュー開始（in_review）</button>
             <button id="approve">承認（approved）</button>
             <button id="needs_fix">差戻し（needs_fix）</button>
+            <button id="resync" style="display:none">再送（同期やり直し）</button>
           </p>
           <script>
             // Surface client-side errors to the page for easier diagnosis in E2E
@@ -1657,6 +1741,15 @@ export function create_server() {
                 document.getElementById('loc').textContent = item.location_id || '';
                 document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
                 document.getElementById('cur_status').textContent = 'Status: ' + (item.status||'');
+                // sync state
+                try{
+                  const s = await (await fetch('/api/change-requests/${id}/sync')).json();
+                  var el=document.getElementById('sync_state'); var btn=document.getElementById('resync');
+                  var st=(s&&s.state)||'synced';
+                  if(st==='pending'){ el.textContent='Sync: pending'; btn.style.display='inline-block'; }
+                  else if(st==='failed'){ el.textContent='Sync: failed'; btn.style.display='inline-block'; }
+                  else { el.textContent='Sync: synced'; btn.style.display='none'; }
+                }catch(e){ var el=document.getElementById('sync_state'); if(el) el.textContent='Sync: n/a'; }
                 // Diff: fetch base location and render differences (fallback to after-only)
                 let base = {};
                 try{
@@ -1767,6 +1860,7 @@ export function create_server() {
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
             document.getElementById('start_review').onclick = ()=> setStatus('in_review');
+            document.getElementById('resync').onclick = async ()=>{ try{ const r=await fetch('/api/change-requests/${id}/resync', { method:'POST' }); const j=await r.json(); document.getElementById('msg').textContent = j&&j.ok? '再送しました' : '再送に失敗しました'; }catch(e){ document.getElementById('msg').textContent='再送エラー'; } };
             // Defer initial loads until window load to avoid race/parse issues
             (function(){ try{
               if (document.readyState === 'complete') { setTimeout(function(){ loadItem(); loadAuto(); loadAudit(); }, 0); }
@@ -1820,6 +1914,18 @@ if (is_main) {
     console.log('[env] .env loaded');
   }
   const server = create_server();
+  // Security hints for production
+  try {
+    if (process.env.NODE_ENV === 'production') {
+      const allowEnv = (process.env.ALLOWED_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
+      if (!allowEnv.length) {
+        console.warn('[security] ALLOWED_ORIGINS is not set in production. CORS will be wide-open (*)');
+      }
+      const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
+      const secure = (v==='1'||v==='true'||v==='yes') || (!v && process.env.NODE_ENV==='production');
+      if (!secure) console.warn('[security] COOKIE_SECURE is not enabled; set COOKIE_SECURE=1 under HTTPS');
+    }
+  } catch {}
   server.on('error', (err) => {
     console.error('[server] listen error:', err && err.message ? err.message : err);
     console.error('[server] hint: try another PORT or set HOST=127.0.0.1');
