@@ -1,0 +1,34 @@
+date: 2025-09-03
+title: MVP安定化・E2E最適化・レビューフロー強化
+summary:
+  - Owner提出 → Reviewerレビュー/承認/差戻し → 反映 までのMVPを安定化
+  - 変更依頼のオフライン永続化、Outbox再送、監査/診断/ヘルス可視化を実装
+  - Playwright E2Eを軽量構成で整備（成功時アーティファクト抑制）
+backend:
+  - API: /api/change-requests(一覧/作成/取得/状態/チェック/コンプライアンス)
+  - 読み取りキャッシュ: Supabaseの読み出しはread-throughでローカルへ取り込み、返却は常にローカル
+  - マージ戦略: upsertでupdated_at/created_at比較により逆戻り防止
+  - Outbox: 非同期書込（再送/バックオフ）; ディスク保存（change_requests.json, outbox.json）
+  - 監査: in-memory + Supabase outbox連携; /api/audits
+  - 診断/ヘルス: /__dev/diag, /__dev/seed, /api/health（supabase_configured/outbox_len/store_count）
+ui_ux:
+  - Owner: フォーム（phone/hours/url/description/photo_url, sign-off必須）, 送信後にレビュアー切替リンク
+  - Review: 一覧フィルタ、詳細で差分テーブル/チェック保存/状態更新、JSエラー可視化・ロード待ち強化
+  - ヘルス指標: ヘッダ右側に常時表示（DB:on|off | Outbox:N）
+  - 役割自動切替: DEV時に/review系へ非レビュアーでアクセス→レビューアーに切替してnextへ遷移
+security_stability:
+  - CORS/COOKIE_SECURE/同一サイト属性整理; リクエストボディ読取の堅牢化(JSON/FORM)
+  - クライアントスクリプトのcatch構文修正、初期ロード順序の見直し、エスケープ関数の安定化
+e2e:
+  - 設定: screenshot=only-on-failure, trace=retain-on-failure, video=off, workers=1, 小さめviewport
+  - ロール付与はcontext.addCookiesで安定化（/__dev/impersonate依存を排除）
+  - テスト: owner_create, review_diff, top_smoke（差分ロード待ち/フォールバック許容）
+fixes:
+  - needs_fixが一覧に反映されない: レスポンスをローカル起点へ変更、upsertの時系列マージ導入
+  - ヘルス指標が表示されない: DEVの有無を問わずヘルス取得スクリプトを埋め込み
+known:
+  - 自動チェック取得失敗は非ブロッキング。クライアント側フォールバック計算の追加を検討
+next_steps:
+  - 自動チェックのクライアントフォールバック実装
+  - E2Eのケース拡張（差戻し→再送→承認の往復、Outbox同期挙動の観察）
+  - CI導入（最小構成E2E）、ヘルス指標の時系列監視

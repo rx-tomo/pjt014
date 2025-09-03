@@ -66,6 +66,8 @@ function json(res, status, data) {
     } catch {}
   }
 
+  // NOTE: read_data is defined within the request handler scope below.
+
   // --- Minimal in-memory audit log + optional Supabase outbox ---
   const AUDIT = globalThis.__pjt014_audits || (globalThis.__pjt014_audits = []);
   function record_audit(evt) {
@@ -94,8 +96,9 @@ function json(res, status, data) {
         '</span>'
       : '';
     const roleHighlightScript = dev
-      ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=r?" ("+r+")":"";cur.style.color="#c30";}var hb=document.getElementById("__health_bar");if(hb){fetch("/api/health").then(function(x){return x.json()}).then(function(j){if(j&&j.ok){var rt=j.runtime||{};hb.textContent=(rt.supabase_configured?"DB:on":"DB:off")+" | Outbox:"+(rt.outbox_len||0);}}).catch(function(){})}}catch(e){}})();</script>'
+      ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=r?" ("+r+")":"";cur.style.color="#c30";}}catch(e){}})();</script>'
       : '';
+    const healthScript = '<script>(function(){try{var hb=document.getElementById("__health_bar");if(!hb) return;fetch("/api/health").then(function(x){return x.json()}).then(function(j){if(j&&j.ok){var rt=j.runtime||{};hb.textContent=(rt.supabase_configured?"DB:on":"DB:off")+" | Outbox:"+(rt.outbox_len||0);} else { hb.textContent="health: n/a"; }}).catch(function(){ hb.textContent="health: n/a"; });}catch(e){}})();</script>';
     return `
       <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">
         <a href="/">Home</a> |
@@ -104,7 +107,7 @@ function json(res, status, data) {
         <a href="/review">Review Queue</a>
         ${roleSwitch}
         <span id="__health_bar" style="float:right; margin-right:8px; color:#555"></span>
-      </nav>${roleHighlightScript}
+      </nav>${roleHighlightScript}${healthScript}
     `;
   }
 
@@ -195,8 +198,10 @@ export function create_server() {
             return process.env.NODE_ENV === 'production';
           })();
           set_cookie(res, 'role', role, { httpOnly: true, sameSite: 'Lax', secure: SECURE, path: '/' });
-          const ref = req.headers.referer || '/';
-          res.statusCode = 302; res.setHeader('location', ref); return res.end();
+          let next = String(url.searchParams.get('next') || '').trim();
+          // allow only same-origin paths
+          if (!next || !/^\//.test(next)) next = (req.headers.referer || '/');
+          res.statusCode = 302; res.setHeader('location', next); return res.end();
         } catch {
           res.statusCode = 400; return res.end('bad request');
         }
@@ -222,6 +227,61 @@ export function create_server() {
               resolve(JSON.parse(raw));
             } catch (e) {
               console.warn(`[http] ${method} ${pathname} read_json parse failed ${ms}ms: ${e && e.message ? e.message : e}`);
+              reject(e);
+            }
+          });
+          req.on('error', onError);
+          req.on('aborted', () => onError(new Error('request_aborted')));
+        });
+      }
+
+      // Robust body reader: supports JSON and URL-encoded forms
+      async function read_data() {
+        const tStart = Date.now();
+        return await new Promise((resolve, reject) => {
+          const chunks = [];
+          const onError = (e) => {
+            const ms = Date.now() - tStart;
+            console.warn(`[http] ${method} ${pathname} read_data error after ${ms}ms: ${e && e.message ? e.message : e}`);
+            reject(e || new Error('request_error'));
+          };
+          req.on('data', (c) => chunks.push(c));
+          req.on('end', () => {
+            const ms = Date.now() - tStart;
+            try {
+              const rawBuf = Buffer.concat(chunks);
+              const raw = rawBuf.toString('utf8') || '';
+              const ctype = (req.headers['content-type'] || '').toString().toLowerCase();
+              if (ctype.includes('application/json')) {
+                console.log(`[http] ${method} ${pathname} read_data json ${rawBuf.length}B ${ms}ms`);
+                resolve(JSON.parse(raw || '{}'));
+                return;
+              }
+              if (ctype.includes('application/x-www-form-urlencoded')) {
+                console.log(`[http] ${method} ${pathname} read_data form ${rawBuf.length}B ${ms}ms`);
+                const params = new URLSearchParams(raw);
+                const obj = {};
+                for (const [k, v] of params.entries()) obj[k] = v;
+                resolve(obj);
+                return;
+              }
+              // Fallbacks
+              try {
+                const j = JSON.parse(raw || '{}');
+                console.log(`[http] ${method} ${pathname} read_data fallback-json ${rawBuf.length}B ${ms}ms`);
+                resolve(j);
+              } catch {
+                try {
+                  const params = new URLSearchParams(raw);
+                  const obj = {};
+                  for (const [k, v] of params.entries()) obj[k] = v;
+                  console.log(`[http] ${method} ${pathname} read_data fallback-form ${rawBuf.length}B ${ms}ms`);
+                  resolve(obj);
+                } catch (e2) {
+                  reject(e2);
+                }
+              }
+            } catch (e) {
               reject(e);
             }
           });
@@ -340,17 +400,21 @@ export function create_server() {
         function show(id){ var el=document.getElementById(id); if(el) el.style.display='block'; }
         if(!r){ show('qa-owner'); show('qa-reviewer'); show('qa-admin'); } // 未設定なら全部
         if(r==='owner') show('qa-owner'); if(r==='reviewer') show('qa-reviewer'); if(r==='admin') show('qa-admin');
-      }catch{}})();
+      }catch(e){}})();
       // Seed button
       (function(){ try{
         var btn=document.getElementById('seed'); if(!btn) return; var msg=document.getElementById('seed_msg');
         btn.onclick = async function(){ btn.disabled=true; msg.textContent='…'; try{ var res=await fetch('/__dev/seed?count=3'); var j=await res.json(); msg.textContent = j.ok? ('投入: '+(j.count||0)+'件'): '失敗'; }catch(e){ msg.textContent='失敗'; } finally{ btn.disabled=false; } };
-      }catch{}})();
+      }catch(e){}})();
       // Recent activity
       (function(){ try{
-        function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+        function esc(s){
+          return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+            switch(c){ case '&': return '&amp;'; case '<': return '&lt;'; case '>': return '&gt;'; case '"': return '&quot;'; case '\'': return '&#39;'; default: return c; }
+          });
+        }
         fetch('/api/recent-activity').then(function(r){return r.json()}).then(function(j){ var el=document.getElementById('recent'); if(!j||!j.ok){ el.textContent='取得に失敗しました'; return; } var arr=j.items||[]; if(!arr.length){ el.textContent='最近の操作はまだありません'; return; } el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(function(a){ var id=a.entity_id||''; var href=id?('/review/'+id):'#'; return '<li><code>'+esc(a.created_at||'')+'</code> '+esc(a.action||'')+' <a href="'+href+'">'+esc(id)+'</a></li>'; }).join('')+'</ul>'; }).catch(function(){ var el=document.getElementById('recent'); el.textContent='取得に失敗しました'; });
-      }catch{}})();
+      }catch(e){}})();
       load();
     </script>
   </body>
@@ -687,9 +751,8 @@ export function create_server() {
             const r = await sbFetch('/rest/v1/owner_change_requests' + (qs ? `?${qs}` : ''), { method: 'GET' }, 600);
             const arr = r.ok ? await r.json() : [];
             if (Array.isArray(arr) && arr.length) {
-              // read-through cache: sync into local store
+              // read-through cache: sync into local store (source of truth for UI)
               try { for (const it of arr) upsert_change_request(it); } catch {}
-              return json(res, 200, { ok: true, items: arr });
             }
           } catch {}
         }
@@ -728,11 +791,14 @@ export function create_server() {
       }
       if (method === 'POST' && pathname === '/api/change-requests') {
         try {
-          const body = await read_json();
+          const body = await read_data();
+          if (DEV_ENABLED) {
+            try { console.log('[create_req_body]', typeof body, JSON.stringify(body)); } catch {}
+          }
           if (!body || typeof body.location_id !== 'string' || !body.location_id) {
             return json(res, 400, { ok: false, error: 'invalid_location_id' });
           }
-          if (!body || !(body.owner_signoff === true || body.owner_signoff === 'true' || body.owner_signoff === 1 || body.owner_signoff === '1')) {
+          if (!body || !(body.owner_signoff === true || body.owner_signoff === 'true' || body.owner_signoff === 1 || body.owner_signoff === '1' || body.owner_signoff === 'on')) {
             return json(res, 400, { ok: false, error: 'invalid_owner_signoff' });
           }
           // 認可: 所属ロケーションのみ作成可能
@@ -784,11 +850,32 @@ export function create_server() {
             },
             owner_signoff: Boolean(body?.owner_signoff || false),
           }, email);
+          try { console.log('[create_request]', rec.id, 'loc=', rec.payload?.location_id, 'by', email); } catch {}
           // Audit: 作成
           record_audit({ entity: 'change_request', entity_id: rec.id, action: 'created', actor_email: email, meta: { location_id: body.location_id } });
           return json(res, 201, { ok: true, id: rec.id });
         } catch (e) {
+          try { console.warn('[create_req_error]', e && e.message ? e.message : e); } catch {}
           return json(res, 400, { ok: false, error: 'invalid_json' });
+        }
+      }
+      // Dev diagnostics: memory/outbox snapshot
+      if (DEV_ENABLED && method === 'GET' && pathname === '/__dev/diag') {
+        try {
+          const url = new URL(req.url || '', 'http://x');
+          const loc = url.searchParams.get('locId') || '';
+          const all = list_change_requests();
+          const filtered = loc ? all.filter(r => (r.payload?.location_id||null) === loc) : all;
+          const outbox = (globalThis.__pjt014_outbox || []).slice();
+          return json(res, 200, {
+            ok: true,
+            store_count: all.length,
+            store_loc_count: filtered.length,
+            outbox_len: outbox.length,
+            sample: filtered.slice(-5),
+          });
+        } catch (e) {
+          return json(res, 500, { ok: false, error: String(e&&e.message||e) });
         }
       }
       if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/status')) {
@@ -951,6 +1038,8 @@ export function create_server() {
         const id = pathname.split('/').pop();
         const loc = get_location(id || '');
         if (!loc) return html(res, 404, '<!doctype html><html><body><h1>Not Found</h1></body></html>');
+        const googleConfiguredOwner = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+        const ownerStatusInit = 'OAuth: ' + (googleConfiguredOwner ? 'configured' : 'not configured') + (email ? ' | signed in as <b>'+(email||'')+'</b>' : '');
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>${loc.name}</title>
           <style>body{font-family:system-ui;padding:20px;} dt{font-weight:bold;margin-top:8px}</style>
         </head><body>
@@ -991,7 +1080,7 @@ export function create_server() {
         const source = get_locations();
         const items = source.filter(it => allowed.has(it.id));
         const li = items.map(it=>('<li><a href="/owner/'+it.id+'">'+it.name+'</a> - '+(it.address||'')+'</li>')).join('');
-        const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })();
+        const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch(e){} return ''; })();
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
           <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0} .muted{color:#666}</style>
         </head><body>
@@ -1052,7 +1141,7 @@ export function create_server() {
           </style>
         </head><body>
           ${header_nav()}
-          ${(function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })()}
+          ${(function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch(e){} return ''; })()}
           <p><a href="/owner">← ロケーション選択へ</a></p>
           <h1>オーナーポータル（最小） - ${loc.name}</h1>
           <p style="color:#555">対象: オーナー。できること: 基本項目の変更依頼を提出（保存は開発用の一時保存）。</p>
@@ -1068,12 +1157,12 @@ export function create_server() {
           <div class="grid">
             <div class="card">
               <h2>ステータス/KPI（stub）</h2>
-              <div id="status">loading...</div>
+              <div id="owner_status">${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) ? 'OAuth: configured' : 'OAuth: not configured'}</div>
               <ul id="kpi"><li>Profile completeness: stub</li><li>Token: see Dashboard</li></ul>
             </div>
             <div class="card">
           <h2>変更依頼フォーム（限定項目）</h2>
-          <form id="req">
+          <form id="req" method="post" action="/api/change-requests">
             <input type="hidden" name="location_id" value="${loc.id}" />
             <label>電話<input name="phone" value="${loc.phone||''}" /></label>
             <label>営業時間<input name="hours" value="${loc.hours||''}" /></label>
@@ -1083,7 +1172,7 @@ export function create_server() {
             <label>写真URL<input name="photo_url" /></label>
             <label><input type="checkbox" id="owner_signoff" name="owner_signoff" value="1"> オーナーによる内容確認（必須）</label>
             <div id="form_err" class="err"></div>
-            <button id="submit_btn" type="submit" disabled>送信</button>
+            <button id="submit_btn" type="submit">送信</button>
             <span id="msg"></span>
           </form>
             </div>
@@ -1097,14 +1186,14 @@ export function create_server() {
             </table>
           </div>
           <script>
-            function fmt(ts){ try{ const d=new Date(ts); if(!isNaN(d)) return d.toLocaleString(); }catch{} return ts||''; }
+            function fmt(ts){ try{ const d=new Date(ts); if(!isNaN(d)) return d.toLocaleString(); }catch(e){} return ts||''; }
             async function loadStatus(){
               try{ const j = await (await fetch('/api/dashboard')).json();
-                const el = document.getElementById('status');
+                const el = document.getElementById('owner_status');
                 const authed = j?.session?.authenticated; const email = j?.session?.email;
                 el.innerHTML = 'OAuth: '+(j?.config?.google_configured?'configured':'not configured') + (authed? ' | signed in as <b>'+email+'</b>':'' );
                 el.className = authed? 'ok':'err';
-              }catch{ document.getElementById('status').textContent='status error'; }
+              }catch(e){ var el=document.getElementById('owner_status'); if(el) el.textContent='status error'; }
             }
             async function loadRequests(){
               const tb = document.getElementById('reqs'); tb.innerHTML='';
@@ -1128,13 +1217,17 @@ export function create_server() {
                     const lastSeen = localStorage.getItem(key) || '';
                     const created = nf.created_at || '';
                     const isNew = created && created !== lastSeen;
-                    function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+                    function esc(s){
+                      return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+                        switch(c){ case '&': return '&amp;'; case '<': return '&lt;'; case '>': return '&gt;'; case '"': return '&quot;'; case "'": return '&#39;'; default: return c; }
+                      });
+                    }
                     el.innerHTML = (isNew? '<b style="background:#ff0;color:#900;padding:0 6px;margin-right:6px">新着</b>' : '') + '最新の差戻し理由: ' + esc(nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>' + (isNew? ' <button id="mark_seen" style="margin-left:6px">既読にする</button>' : '');
                     const btn = document.getElementById('mark_seen'); if(btn) btn.onclick = ()=>{ localStorage.setItem(key, created||''); el.innerHTML = '最新の差戻し理由: ' + (nf.review_note||'') + ' <span class="muted">(' + fmt(created) + ')</span>'; };
                   } else {
                     el.textContent = '';
                   }
-                }catch{ document.getElementById('last_reason').textContent=''; }
+                }catch(e){ document.getElementById('last_reason').textContent=''; }
                 arr.forEach(r=>{ const tr=document.createElement('tr');
                   const reason = (r.review_note||'');
                   const st = (r.status||'');
@@ -1142,7 +1235,7 @@ export function create_server() {
                   tr.innerHTML = '<td>'+r.id+'</td><td>'+(r.payload?.location_id||r.location_id||'')+'</td><td>'+st+'</td><td>'+reasonCell+'</td><td>'+fmt(r.created_at||'')+'</td>';
                   tb.appendChild(tr);
                 });
-              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
+              }catch(e){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             async function liveCheck(){
               const desc = document.getElementById('desc').value||'';
@@ -1152,15 +1245,21 @@ export function create_server() {
                 const el = document.getElementById('warn');
                 const hits = (j.results && j.results.description) ? j.results.description : [];
                 el.innerHTML = hits.length? ('自動チェック: '+hits.map(h=>h.label+':\"'+h.match+'\"').join(', ')) : '';
-              }catch{ /* noop */ }
+              }catch(e){ /* noop */ }
             }
             function updateSubmit(){
-              const checked = document.getElementById('owner_signoff').checked;
-              document.getElementById('submit_btn').disabled = !checked;
+              try{
+                var cb=document.getElementById('owner_signoff');
+                var btn=document.getElementById('submit_btn');
+                if(!cb||!btn) return;
+                var checked = !!cb.checked;
+                if (checked) { btn.disabled = false; btn.removeAttribute('disabled'); }
+                else { btn.disabled = true; }
+              }catch(e){}
             }
-            document.getElementById('owner_signoff').addEventListener('change', updateSubmit);
-            function validUrl(u){ try{ const x=new URL(u); return /^https:/.test(x.href); }catch{return false;} }
-            function validPhone(p){ return /^(?:\+?\d{1,4}[ \-]?)?(?:\d{2,4}[ \-]?){2,4}\d{2,4}$/.test(p); }
+            var os=document.getElementById('owner_signoff'); if (os){ os.addEventListener('change', updateSubmit); os.addEventListener('input', updateSubmit); os.addEventListener('click', updateSubmit); }
+            function validUrl(u){ try{ const x=new URL(u); return /^https:/.test(x.href); }catch(e){return false;} }
+            function validPhone(p){ return /^[0-9+\s-]{7,}$/.test(String(p||'')); }
             document.getElementById('req').onsubmit = async (e)=>{
               e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
               const errEl = document.getElementById('form_err'); const m = document.getElementById('msg');
@@ -1170,9 +1269,9 @@ export function create_server() {
               if (obj.phone && !validPhone(String(obj.phone||''))){ errEl.textContent='電話番号の形式が正しくありません'; return; }
               obj.owner_signoff = true;
               try{
-                const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
+                const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, credentials:'same-origin', body: JSON.stringify(obj)});
                 const j = await r.json();
-                if(j.ok){ m.textContent='送信しました: '+j.id; (e.target).reset(); updateSubmit(); loadRequests(); } else {
+                if(j.ok){ m.innerHTML='送信しました: '+j.id+' <a href="/__dev/impersonate?role=reviewer&next=%2Freview">レビューキューを開く（レビュアーに切替）</a>'; (e.target).reset(); updateSubmit(); loadRequests(); } else {
                   if (j.error==='validation_error'){
                     if (j.errors && j.errors.url){ errEl.textContent='URLは https:// で始まる必要があります'; }
                     else if (j.errors && j.errors.phone){ errEl.textContent='電話番号の形式が正しくありません'; }
@@ -1183,7 +1282,7 @@ export function create_server() {
                     errEl.textContent='送信に失敗しました（'+(j.error||'不明')+'）';
                   }
                 }
-              }catch{ errEl.textContent='送信エラー'; }
+              }catch(e){ errEl.textContent='送信エラー'; }
             };
             loadStatus(); loadRequests(); updateSubmit();
             document.getElementById('desc').addEventListener('input', liveCheck);
@@ -1200,10 +1299,10 @@ export function create_server() {
           const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
           const role = (parsed.role || '').toString();
           if (DEV_ENABLED && role !== 'reviewer') {
-            res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
+            res.statusCode = 302; res.setHeader('location', '/__dev/impersonate?role=reviewer&next=%2Freview'); return res.end();
           }
         } catch {}
-        const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })();
+        const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch(e){} return ''; })();
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
           <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px} select{margin-left:8px} .muted{color:#666}</style>
         </head><body>
@@ -1230,7 +1329,7 @@ export function create_server() {
           </div>
           <table><thead><tr><th>ID</th><th>Loc</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"><tr><td colspan="4" style="color:#555">loading...</td></tr></tbody></table>
           <script>
-            function fmt(ts){ try{ const d=new Date(ts); if(!isNaN(d)) return d.toLocaleString(); }catch{} return ts||''; }
+            function fmt(ts){ try{ const d=new Date(ts); if(!isNaN(d)) return d.toLocaleString(); }catch(e){} return ts||''; }
             function getQueryParam(name){ const u=new URL(location.href); return u.searchParams.get(name)||''; }
             function setQueryParam(name,val){ const u=new URL(location.href); if(val) u.searchParams.set(name,val); else u.searchParams.delete(name); history.replaceState(null,'',u.toString()); }
             async function load(){
@@ -1250,7 +1349,7 @@ export function create_server() {
                   tr.innerHTML = '<td><a href="/review/'+id+'">'+id+'</a></td><td>'+loc+'</td><td>'+st+'</td><td>'+created+'</td>';
                   tb.appendChild(tr);
                 });
-              }catch{ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
+              }catch(e){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
             load();
           </script>
@@ -1265,7 +1364,8 @@ export function create_server() {
           const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
           const role = (parsed.role || '').toString();
           if (DEV_ENABLED && role !== 'reviewer') {
-            res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
+            const next = encodeURIComponent(pathname);
+            res.statusCode = 302; res.setHeader('location', '/__dev/impersonate?role=reviewer&next='+next); return res.end();
           }
         } catch {}
         const id = pathname.split('/').pop();
@@ -1315,9 +1415,35 @@ export function create_server() {
             <button id="needs_fix">差戻し（needs_fix）</button>
           </p>
           <script>
+            // Surface client-side errors to the page for easier diagnosis in E2E
+            (function(){
+              try{
+                window.addEventListener('error', function(e){ try{ var el=document.getElementById('err'); if(el){ el.textContent = 'JS error: ' + (e && e.message ? e.message : e); } }catch(_){} });
+                window.addEventListener('unhandledrejection', function(e){ try{ var el=document.getElementById('err'); var msg = (e && e.reason && (e.reason.message || e.reason)) || e; if(el){ el.textContent = 'JS rejection: ' + msg; } }catch(_){} });
+              }catch(_){ }
+            })();
+            // Fallback: if diff stays "loading..." for too long, show a readable failure
+            (function(){
+              try{
+                var started = Date.now();
+                var idInt = setInterval(function(){
+                  var el = document.getElementById('diff');
+                  if(!el) { clearInterval(idInt); return; }
+                  var t = (el.textContent||'').trim();
+                  if (/^loading\.\.\.$/i.test(t) && Date.now() - started > 5000) {
+                    el.textContent = '差分の取得に失敗（タイムアウト）';
+                    clearInterval(idInt);
+                    return;
+                  }
+                  if (!/^loading\.\.\.$/i.test(t)) {
+                    clearInterval(idInt);
+                  }
+                }, 250);
+              }catch(e){}
+            })();
             async function loadItem(){
               try{
-                const res = await fetch('/api/change-requests/${id}');
+                const res = await fetch('/api/change-requests/${id}', { credentials: 'same-origin' });
                 let j=null; let parseErr=null; try{ j=await res.json(); }catch(e){ parseErr=e; }
                 if(!res.ok || !j || j.ok===false){
                   document.getElementById('payload').textContent = 'not found';
@@ -1329,43 +1455,52 @@ export function create_server() {
                 document.getElementById('loc').textContent = item.location_id || '';
                 document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
                 document.getElementById('cur_status').textContent = 'Status: ' + (item.status||'');
-                // Diff: fetch base location and render differences
+                // Diff: fetch base location and render differences (fallback to after-only)
+                let base = {};
                 try{
-                  const baseRes = await fetch('/api/locations/'+encodeURIComponent(item.location_id||''));
+                  const baseRes = await fetch('/api/locations/'+encodeURIComponent(item.location_id||''), { credentials: 'same-origin' });
                   const baseJson = await baseRes.json();
-                  const base = (baseJson && baseJson.item) ? baseJson.item : {};
-                  const after = item.changes || {};
-                  const fields = [
-                    ['phone','電話'], ['hours','営業時間'], ['url','URL'], ['description','説明'], ['photo_url','写真URL']
-                  ];
-                  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
-                  let rows='';
-                  for (const [key,label] of fields){
-                    const before = base && (base[key]!=null? base[key]: '');
-                    const aft = after && (after[key]!=null? after[key]: before);
-                    const changed = String(before||'') !== String(aft||'');
-                    rows += '<tr>'+
-                      '<td>'+esc(label)+'</td>'+
-                      '<td>'+esc(before||'')+'</td>'+
-                      '<td'+(changed?' style="background:#fff4f4"':'')+'>'+esc(aft||'')+'</td>'+
-                    '</tr>';
-                  }
-                  document.getElementById('diff').innerHTML = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>項目</th><th>Before</th><th>After</th></tr></thead><tbody>'+rows+'</tbody></table>';
-                }catch{ document.getElementById('diff').textContent='差分の取得に失敗しました'; }
+                  base = (baseJson && baseJson.item) ? baseJson.item : {};
+                }catch(e){ /* use empty base */ }
+                const after = item.changes || {};
+                const fields = [
+                  ['phone','電話'], ['hours','営業時間'], ['url','URL'], ['description','説明'], ['photo_url','写真URL']
+                ];
+                function esc(s){
+                  s = String(s==null?'':s);
+                  s = s.replace(/&/g,'&amp;');
+                  s = s.replace(/</g,'&lt;');
+                  s = s.replace(/>/g,'&gt;');
+                  s = s.replace(/\"/g,'&quot;');
+                  s = s.replace(/'/g,'&#39;');
+                  return s;
+                }
+                let rows='';
+                for (const [key,label] of fields){
+                  const before = base && (base[key]!=null? base[key]: '');
+                  const aft = after && (after[key]!=null? after[key]: before);
+                  const changed = String(before||'') !== String(aft||'');
+                  rows += '<tr>'+
+                    '<td>'+esc(label)+'</td>'+
+                    '<td>'+esc(before||'')+'</td>'+
+                    '<td'+(changed?' style="background:#fff4f4"':'')+'>'+esc(aft||'')+'</td>'+
+                  '</tr>';
+                }
+                document.getElementById('diff').innerHTML = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>項目</th><th>Before</th><th>After</th></tr></thead><tbody>'+rows+'</tbody></table>';
                 // Auto-transition: move submitted -> in_review on open
                 try{
                   if ((item.status||'') === 'submitted') {
                     await setStatus('in_review');
                     document.getElementById('cur_status').textContent = 'Status: in_review';
                   }
-                }catch{}
+                }catch(e){}
                 // prefill checks
                 try{
                   const ch = item.checks||{}; const f = document.getElementById('checks');
                   for(const k of Object.keys(ch)){
                     const el = f.querySelector('input[name="'+k+'"]'); if(el) el.checked = Boolean(ch[k]);
                   }
-                }catch{}
+                }catch(e){}
                 // show owner signoff
                 document.getElementById('owner').textContent = 'オーナー確認: ' + (item.owner_signoff ? '済' : '未');
                 // toggle start review button
@@ -1374,12 +1509,12 @@ export function create_server() {
                   const st = (item.status||'');
                   const hide = (st==='in_review' || st==='approved' || st==='needs_fix' || st==='synced');
                   btn.style.display = hide ? 'none' : 'inline-block';
-                }catch{}
-              }catch{ document.getElementById('payload').textContent='取得に失敗しました'; }
+                }catch(e){}
+              }catch(e){ document.getElementById('payload').textContent='取得に失敗しました'; }
             }
             async function loadAuto(){
               try{
-                const j = await (await fetch('/api/change-requests/${id}/compliance')).json();
+                const j = await (await fetch('/api/change-requests/${id}/compliance', { credentials: 'same-origin' })).json();
                 const el = document.getElementById('auto');
                 if(!j.ok){ el.textContent='自動チェックの取得に失敗しました'; return; }
                 const res = j.results||{};
@@ -1388,7 +1523,7 @@ export function create_server() {
                   rows.push('<b>説明</b>: '+res.description.map(h=>h.label+':"'+h.match+'"').join(', '));
                 }
                 el.innerHTML = rows.length? rows.map(r=>'<div style="color:#900">'+r+'</div>').join('') : '<div style="color:#090">自動チェック: 問題なし</div>';
-              }catch{ document.getElementById('auto').textContent='自動チェックエラー'; }
+              }catch(e){ document.getElementById('auto').textContent='自動チェックエラー'; }
             }
             async function loadAudit(){
               try{
@@ -1397,17 +1532,17 @@ export function create_server() {
                 if(!j.ok){ el.textContent='取得に失敗しました'; return; }
                 const arr = j.items||[];
                 if(!arr.length){ el.textContent='記録なし'; return; }
-                function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+                function esc(s){ s=String(s==null?'':s); s=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;'); return s; }
                 el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(function(a){ return '<li><code>'+esc(a.created_at||'')+'</code> '+esc(a.action||'')+' by '+esc(a.actor_email||'-')+'</li>'; }).join('')+'</ul>';
-              }catch{ document.getElementById('audit').textContent='監査取得エラー'; }
+              }catch(e){ document.getElementById('audit').textContent='監査取得エラー'; }
             }
             document.getElementById('checks').onsubmit = async (e)=>{
               e.preventDefault(); const f=new FormData(e.target); const obj={}; for(const [k,v] of f.entries()){ obj[k]=true; }
               try{
-                const r = await fetch('/api/change-requests/${id}/checks', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
+                const r = await fetch('/api/change-requests/${id}/checks', { method:'POST', headers:{'content-type':'application/json'}, credentials:'same-origin', body: JSON.stringify(obj)});
                 const j = await r.json();
                 document.getElementById('msg').textContent = j.ok? '保存しました' : '保存に失敗しました';
-              }catch{ document.getElementById('msg').textContent='保存エラー'; }
+              }catch(e){ document.getElementById('msg').textContent='保存エラー'; }
             };
             async function setStatus(st){
               try{
@@ -1417,7 +1552,7 @@ export function create_server() {
                   if (!reason || reason.length < 3) { document.getElementById('msg').textContent='差戻し理由を入力してください'; return; }
                   payload.reason = reason;
                 }
-                const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(payload)});
+                const r = await fetch('/api/change-requests/${id}/status', { method:'POST', headers:{'content-type':'application/json'}, credentials:'same-origin', body: JSON.stringify(payload)});
                 let j=null; let parseErr=null; try{ j=await r.json(); }catch(e){ parseErr=e; }
                 if (r.ok && j && j.ok) {
                   document.getElementById('msg').textContent = '状態を '+st+' に更新しました';
@@ -1425,21 +1560,48 @@ export function create_server() {
                 } else {
                   document.getElementById('msg').textContent = '更新に失敗しました (HTTP '+r.status+(parseErr?' parse error':'')+')';
                 }
-              }catch{ document.getElementById('msg').textContent='更新エラー'; }
+              }catch(e){ document.getElementById('msg').textContent='更新エラー'; }
             }
             document.getElementById('approve').onclick = ()=> setStatus('approved');
             document.getElementById('needs_fix').onclick = ()=> setStatus('needs_fix');
             document.getElementById('start_review').onclick = ()=> setStatus('in_review');
-            loadItem(); loadAuto(); loadAudit();
+            // Defer initial loads until window load to avoid race/parse issues
+            (function(){ try{
+              if (document.readyState === 'complete') { setTimeout(function(){ loadItem(); loadAuto(); loadAudit(); }, 0); }
+              else { window.addEventListener('load', function(){ loadItem(); loadAuto(); loadAudit(); }, { once: true }); }
+            }catch(e){ try{ loadItem(); loadAuto(); loadAudit(); }catch(_){} } })();
           </script>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());
       }
 
+      // API: health (must be above fallback)
+      if (method === 'GET' && pathname === '/api/health') {
+        try {
+          const outboxLen = (globalThis.__pjt014_outbox || []).length;
+          const storeCount = (()=>{ try { return list_change_requests().length; } catch { return null; } })();
+          return json(res, 200, {
+            ok: true,
+            runtime: {
+              supabase_configured: supabaseEnabled(),
+              outbox_len: outboxLen,
+              store_count: storeCount,
+            }
+          });
+        } catch {
+          return json(res, 500, { ok: false });
+        }
+      }
+
       json(res, 404, { ok: false, error: 'not_found' });
     } catch (err) {
       console.error(err);
-      json(res, 500, { ok: false, error: 'internal_error' });
+      try {
+        if ((pathname||'').startsWith('/api/')) return json(res, 500, { ok: false, error: 'internal_error' });
+        return html(res, 500, '<!doctype html><html><body><h1>Internal Error</h1><p>一時的なエラーが発生しました。<a href="/">トップへ戻る</a></p></body></html>');
+      } catch {
+        return json(res, 500, { ok: false, error: 'internal_error' });
+      }
     }
   });
 
@@ -1462,23 +1624,17 @@ if (is_main) {
     process.exitCode = 1;
   });
   server.listen(DEFAULT_PORT, DEFAULT_HOST, () => {
+    const addr = server.address();
+    const actualPort = (addr && typeof addr === 'object') ? addr.port : DEFAULT_PORT;
     const host = DEFAULT_HOST === '0.0.0.0' ? 'localhost' : DEFAULT_HOST;
-    console.log(`[server] listening on http://${host}:${DEFAULT_PORT}`);
+    console.log(`[server] listening on http://${host}:${actualPort}`);
+    try {
+      const portFile = process.env.PORT_FILE;
+      if (portFile) {
+        fs.writeFileSync(portFile, String(actualPort), 'utf8');
+      }
+    } catch (e) {
+      // best-effort
+    }
   });
 }
-      if (method === 'GET' && pathname === '/api/health') {
-        try {
-          const outboxLen = (globalThis.__pjt014_outbox || []).length;
-          const storeCount = (()=>{ try { return list_change_requests().length; } catch { return null; } })();
-          return json(res, 200, {
-            ok: true,
-            runtime: {
-              supabase_configured: supabaseEnabled(),
-              outbox_len: outboxLen,
-              store_count: storeCount,
-            }
-          });
-        } catch {
-          return json(res, 500, { ok: false });
-        }
-      }
