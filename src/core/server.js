@@ -930,10 +930,13 @@ export function create_server() {
           <b>使い方</b>：対象ロケーションをクリックして詳細を確認し、変更が必要なら詳細ページからオーナーポータルへ進みます。
         </div>
         <ul id="list"></ul>
+        <div id="loc_help" class="muted"></div>
         <script>
           fetch('/api/locations').then(r=>r.json()).then(j=>{
             const ul = document.getElementById('list');
-            (j.items||[]).forEach(it=>{
+            const arr = j.items||[];
+            if (!arr.length){ document.getElementById('loc_help').textContent='表示できるロケーションがありません。権限が必要な場合は管理者に連絡してください。'; return; }
+            arr.forEach(it=>{
               const li=document.createElement('li');
               li.innerHTML = '<a href="/locations/'+it.id+'">'+it.name+'</a> - '+(it.phone||'')+' - '+(it.address||'');
               ul.appendChild(li);
@@ -990,7 +993,7 @@ export function create_server() {
         const li = items.map(it=>('<li><a href="/owner/'+it.id+'">'+it.name+'</a> - '+(it.address||'')+'</li>')).join('');
         const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })();
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
-          <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
+          <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0} .muted{color:#666}</style>
         </head><body>
           ${header_nav()}
           ${offlineBanner}
@@ -1000,6 +1003,7 @@ export function create_server() {
             <b>使い方</b>：変更したいロケーションを選び、次の画面で編集内容を入力して送信します。
           </div>
           <p>編集したいロケーションを選択してください。</p>
+          ${items.length? '' : '<div class="muted" style="margin:8px 0">表示できるロケーションがありません。ログインしているアカウントの割当がない可能性があります。開発中は右上のRoleメニューでOwnerに切替えてください。</div>'}
           <ul>${li}</ul>
         </body></html>`;
         return html(res, 200, page + dev_reload_script());
@@ -1108,7 +1112,7 @@ export function create_server() {
                 const r = await fetch('/api/change-requests?location_id=${loc.id}');
                 const j = await r.json();
                 const arr = j.items||[];
-                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#555">依頼はまだありません</td>'; tb.appendChild(tr); document.getElementById('last_reason').textContent=''; return; }
+                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#555">依頼はまだありません。右上のフォームから変更依頼を作成してください。</td>'; tb.appendChild(tr); document.getElementById('last_reason').textContent=''; return; }
                 // 最新のneeds_fix理由（あれば）
                 try{
                   const nfArr = arr.filter(x=>x.status==='needs_fix' && (x.review_note||'').trim().length>0);
@@ -1155,16 +1159,30 @@ export function create_server() {
               document.getElementById('submit_btn').disabled = !checked;
             }
             document.getElementById('owner_signoff').addEventListener('change', updateSubmit);
+            function validUrl(u){ try{ const x=new URL(u); return /^https:/.test(x.href); }catch{return false;} }
+            function validPhone(p){ return /^(?:\+?\d{1,4}[ \-]?)?(?:\d{2,4}[ \-]?){2,4}\d{2,4}$/.test(p); }
             document.getElementById('req').onsubmit = async (e)=>{
               e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
               const errEl = document.getElementById('form_err'); const m = document.getElementById('msg');
               m.textContent=''; errEl.textContent='';
               if (!document.getElementById('owner_signoff').checked){ errEl.textContent='オーナー確認への同意が必要です'; return; }
+              if (obj.url && !validUrl(String(obj.url||''))){ errEl.textContent='URLは https:// で始まる必要があります'; return; }
+              if (obj.phone && !validPhone(String(obj.phone||''))){ errEl.textContent='電話番号の形式が正しくありません'; return; }
               obj.owner_signoff = true;
               try{
                 const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)});
                 const j = await r.json();
-                if(j.ok){ m.textContent='送信しました: '+j.id; (e.target).reset(); updateSubmit(); loadRequests(); } else { errEl.textContent='送信失敗: '+(j.error||''); }
+                if(j.ok){ m.textContent='送信しました: '+j.id; (e.target).reset(); updateSubmit(); loadRequests(); } else {
+                  if (j.error==='validation_error'){
+                    if (j.errors && j.errors.url){ errEl.textContent='URLは https:// で始まる必要があります'; }
+                    else if (j.errors && j.errors.phone){ errEl.textContent='電話番号の形式が正しくありません'; }
+                    else { errEl.textContent='入力に誤りがあります'; }
+                  } else if (j.error==='invalid_owner_signoff'){
+                    errEl.textContent='オーナー確認への同意が必要です';
+                  } else {
+                    errEl.textContent='送信に失敗しました（'+(j.error||'不明')+'）';
+                  }
+                }
               }catch{ errEl.textContent='送信エラー'; }
             };
             loadStatus(); loadRequests(); updateSubmit();
@@ -1196,6 +1214,7 @@ export function create_server() {
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>：一覧からIDをクリックして詳細へ。詳細画面で自動チェックとチェックリストを確認し、承認/差戻しを行います。
           </div>
+          <span id="seed_help" style="display:none">${DEV_ENABLED ? '<a href="/__dev/seed?count=3">デモデータ投入</a>' : ''}</span>
           <div style="margin:8px 0">
             表示フィルタ: 
             <select id="filter">
@@ -1223,7 +1242,7 @@ export function create_server() {
               try{
                 const j = await (await fetch('/api/change-requests'+(st?('?status='+encodeURIComponent(st)):'') )).json();
                 const arr = j.items||[];
-                if(!arr.length){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" class="muted">該当する依頼はありません</td>'; tb.appendChild(tr); return; }
+                if(!arr.length){ const tr=document.createElement('tr'); var sh=document.getElementById('seed_help'); var extra=sh?(' ・'+sh.innerHTML):''; tr.innerHTML='<td colspan="4" class="muted">該当する依頼はありません。上のステータスで絞り込みを変更してください。'+extra+'</td>'; tb.appendChild(tr); return; }
                 arr.forEach(r=>{
                   const tr = document.createElement('tr');
                   const id = r.id; const loc = (r.location_id||r.payload?.location_id||'');
@@ -1303,7 +1322,7 @@ export function create_server() {
                 if(!res.ok || !j || j.ok===false){
                   document.getElementById('payload').textContent = 'not found';
                   document.getElementById('cur_status').textContent = 'Status: not_found';
-                  document.getElementById('err').textContent = '取得に失敗しました (HTTP '+res.status+(parseErr?' parse error':'')+')';
+                  document.getElementById('err').innerHTML = '取得に失敗しました (HTTP '+res.status+(parseErr?' parse error':'')+'). <a href="/review">承認キューに戻る</a>';
                   return;
                 }
                 const item = j.item;
