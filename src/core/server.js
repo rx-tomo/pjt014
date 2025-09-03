@@ -17,6 +17,7 @@ import { load_env_from_file } from './env.js';
 import { get_locations, get_location } from './locations_stub.js';
 import { get_owned_location_ids } from './memberships_stub.js';
 import { create_change_request, list_change_requests, set_status, get_change_request, set_checks, set_status_and_reason, upsert_change_request } from './change_requests_store.js';
+import { createChangeRequestWrite, patchStatusWrite, patchChecksWrite } from './persistence_writer.js';
 import { notify, buildChangeRequestNotification } from './notifier.js';
 import { check_changes } from './compliance_stub.js';
 
@@ -680,7 +681,7 @@ export function create_server() {
             else if (!httpsOk) errors.url = 'require_https';
           }
           if (Object.keys(errors).length) return json(res, 400, { ok: false, error: 'validation_error', errors });
-          const rec = create_change_request({
+          const rec = createChangeRequestWrite({
             location_id: body?.location_id || null,
             changes: {
               phone: body?.phone ?? null,
@@ -690,10 +691,7 @@ export function create_server() {
               photo_url: body?.photo_url ?? null,
             },
             owner_signoff: Boolean(body?.owner_signoff || false),
-          });
-          try { rec.created_by_email = email || null; } catch {}
-          // Outbox: 後続でSupabaseに非同期保存（リトライあり）
-          enqueueOutbox({ type: 'insert_change_request', data: { id: rec.id, location_id: rec.payload.location_id, changes: rec.payload.changes, status: rec.status, owner_signoff: Boolean(rec.payload.owner_signoff||false), created_by_email: email } });
+          }, email, enqueueOutbox, supabaseEnabled());
           // Audit: 作成
           record_audit({ entity: 'change_request', entity_id: rec.id, action: 'created', actor_email: email, meta: { location_id: body.location_id } });
           return json(res, 201, { ok: true, id: rec.id });
@@ -713,32 +711,8 @@ export function create_server() {
           if (st === 'needs_fix' && reason.length < 3) {
             return json(res, 400, { ok: false, error: 'invalid_reason' });
           }
-          let rec = reason ? set_status_and_reason(id, st, reason) : set_status(id, st);
-          if (!rec) {
-            // Fallback: if not in memory and Supabase enabled, patch directly
-            if (supabaseEnabled()) {
-              const patch = Object.assign({}, { status: st }, (st==='needs_fix' && reason ? { review_note: reason } : {}));
-              try {
-                const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
-                  method: 'PATCH',
-                  headers: { 'content-type': 'application/json', Prefer: 'return=representation' },
-                  body: JSON.stringify(patch),
-                }, 1200);
-                if (!r.ok) return json(res, 404, { ok: false, error: 'not_found' });
-                const arr = await r.json();
-                rec = Array.isArray(arr) && arr[0] ? arr[0] : { id, status: st };
-              } catch {
-                return json(res, 404, { ok: false, error: 'not_found' });
-              }
-            } else {
-              return json(res, 404, { ok: false, error: 'not_found' });
-            }
-          } else {
-            // Outbox: 状態更新を非同期保存（メモリ→Supabase）
-            const patch = { status: st };
-            if (st === 'needs_fix' && reason) patch.review_note = reason;
-            enqueueOutbox({ type: 'patch_change_request', id, patch });
-          }
+          const w = await patchStatusWrite(id, st, reason, enqueueOutbox, supabaseEnabled(), sbFetch);
+          if (!w.ok && w.notFound) return json(res, 404, { ok: false, error: 'not_found' });
           // Audit: 状態変更
           try {
             const cookies = req.headers.cookie || '';
@@ -777,24 +751,8 @@ export function create_server() {
         try {
           const id = pathname.split('/')[3];
           const body = await read_json();
-          let rec = set_checks(id, body || {});
-          if (!rec) {
-            if (supabaseEnabled()) {
-              try {
-                const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
-                  method: 'PATCH',
-                  headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-                  body: JSON.stringify({ checks: body || {} }),
-                }, 1200);
-                if (!r.ok) return json(res, 404, { ok: false, error: 'not_found' });
-              } catch { return json(res, 404, { ok: false, error: 'not_found' }); }
-            } else {
-              return json(res, 404, { ok: false, error: 'not_found' });
-            }
-          } else {
-            // Outbox: チェック保存を非同期保存
-            enqueueOutbox({ type: 'patch_change_request', id, patch: { checks: body || {} } });
-          }
+          const w = await patchChecksWrite(id, body || {}, enqueueOutbox, supabaseEnabled(), sbFetch);
+          if (!w.ok && w.notFound) return json(res, 404, { ok: false, error: 'not_found' });
           // Audit: チェック保存
           try {
             const cookies = req.headers.cookie || '';
