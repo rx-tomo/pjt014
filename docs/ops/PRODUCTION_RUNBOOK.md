@@ -27,6 +27,17 @@
 - 追加（ジョブ/pg-bossを使う場合のみ）
   - `SUPABASE_DB_URL`（pg-boss接続用のDB URL）
 
+- セキュリティ/運用（強く推奨）
+  - `COOKIE_SECURE=1`（HTTPS配下でCookieにSecure付与）
+  - `ALLOWED_ORIGINS="https://admin.example.com,https://owner.example.com"`（CORSを限定）
+
+- 通知（任意）
+  - `NOTIFY_PROVIDER=none|console|webhook`
+  - `NOTIFY_WEBHOOK_URL=https://hooks.example.com/endpoint`（webhook選択時）
+
+- Outbox再試行（任意）
+  - `OUTBOX_MAX_ATTEMPTS=9`（既定9。到達時にfailedへ遷移）
+
 注意: `.env` は本番では使わず、OSレベルのSecret管理（systemdの`Environment=`、Vault、またはクラウドのシークレット）を使用します。
 
 ## 3. Google OAuth 設定
@@ -93,9 +104,10 @@ location / {
 
 ## 7. Cookie/セキュリティ
 
-- 本番はHTTPS前提。Cookieは `HttpOnly; SameSite=Lax` を付与済み
-- 追加の`Secure`フラグは、プロキシのHTTPS終端下で動作する前提で有効化することを推奨（コードの強化項目）
-- CORSはサーバ側で`*`許可（最小プロトタイプのため）。本番では必要オリジンに限定する
+- 本番はHTTPS前提。Cookieは `HttpOnly; SameSite=Lax; Secure` を推奨
+  - `COOKIE_SECURE=1` を設定（未設定かつ `NODE_ENV=production` の場合は警告をログに出力）
+- CORSは本番で必ず限定
+  - `ALLOWED_ORIGINS` に許可オリジンをカンマ区切りで指定。未指定時は `*`（開発向け）
 
 ## 8. ヘルスチェック
 
@@ -112,6 +124,7 @@ location / {
   - 応答コード割合（5xx検知）
   - Outbox滞留数（ログで可視）
   - Supabaseエラー率（`[sb]`ログ）
+  - Outboxのfailed件数（`/api/change-requests/:id/sync` で個別確認）
 
 ## 10. バックアップ/ローテーション
 
@@ -132,12 +145,32 @@ location / {
   - A: `/review/:id`の「監査ログ」か、`/api/audits?entity=change_request&id=<id>`。
 - Q: ジョブ実行は？
   - A: 本MVPでは手動/擬似。`app/api/jobs/gbp-patch`はNext.jsランタイム前提のため別ホスト/将来導入を検討。
+- Q: 通知はどこで設定しますか？
+  - A: `NOTIFY_PROVIDER=console|webhook` を設定。webhookの場合は `NOTIFY_WEBHOOK_URL` も設定。
+- Q: 同期がpending/failedのままです。
+  - A: `/api/change-requests/:id/sync` で状態を確認し、必要なら `/api/change-requests/:id/resync` を実行。
 
 ## 13. 今後の本番強化TODO
 
-- Cookie `Secure`の強制と`SameSite`運用の明文化
-- CORSオリジン制限
+- Cookie `Secure`の強制と`SameSite`運用の明文化（導入済・運用ガイド拡充）
+- CORSオリジン制限（導入済・運用ガイド拡充）
 - レート制限/DoS対策（プロキシ/アプリ）
 - 監査ログの項目拡張（差戻し理由・外部API応答）
 - pg-bossワーカーの常駐化（systemdユニット追加）
 
+## 14. 通知運用（任意）
+
+- 方針: Slack等にロックインせず、console/webhookから開始
+- 設定例
+  - `NOTIFY_PROVIDER=webhook`
+  - `NOTIFY_WEBHOOK_URL=https://hooks.example.com/endpoint`
+- 対象イベント（初期）
+  - 変更依頼の状態更新: needs_fix / approved（owner宛てを想定）
+- 将来拡張
+  - メール（SMTP/SendGrid等）/ その他チャネルの追加、テンプレート整備
+
+## 15. Outbox運用（再送/最終整合）
+
+- 状態: queued → retrying → failed（最大試行に到達）
+- 再送: `/api/change-requests/:id/resync` で手動再送（idempotent）
+- 監視: `OUTBOX_MAX_ATTEMPTS` の調整とfailed監視

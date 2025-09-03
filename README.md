@@ -46,6 +46,15 @@
     - `NOTIFY_WEBHOOK_URL=...`（webhook選択時に送信先URL）
   - オフライン永続（任意）
     - `PERSIST_DIR=tmp/state`（ローカルのディスク永続先。再起動後も依頼/Outboxを保持）
+  - Outbox（再送/最終整合）（任意）
+    - `OUTBOX_MAX_ATTEMPTS=9`（最大試行回数。到達でfailedに遷移）
+
+## 通知（任意の土台）
+
+- 仕組み: `src/core/notifier.js` にて `NOTIFY_PROVIDER` に応じて console / webhook に送信
+- トリガー: 変更依頼の状態更新（approved / needs_fix）
+- Supabase接続時: `notifications` テーブルにも保存（Outbox経由）
+- 将来: メール/その他チャネル・テンプレートの拡張
 
 ## ディレクトリ
 
@@ -75,6 +84,8 @@
     - 通知: `needs_fix` / `approved` で `NOTIFY_PROVIDER` に基づき通知（console/webhook）。Supabase接続時は `notifications` にも保存。
   - `POST /api/change-requests/:id/checks` レビューチェック保存（JSONブール群）
   - `GET /api/change-requests/:id/compliance` 自動チェック結果
+  - `GET /api/change-requests/:id/sync` 同期状態（pending/failed/synced）を返却
+  - `POST /api/change-requests/:id/resync` 永続化の再送（idempotent）
   - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）
 
 ### コンプライアンス設定
