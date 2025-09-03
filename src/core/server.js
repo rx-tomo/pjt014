@@ -544,12 +544,17 @@ export function create_server() {
         }
       }
       }
-      function ensureOutboxTimer() {
-        if (!OUTBOX_TIMER) {
-          OUTBOX_TIMER = globalThis.__pjt014_outbox_timer = setInterval(processOutboxTick, 1000);
-        }
-      }
-      ensureOutboxTimer();
+  function ensureOutboxTimer() {
+    if (!OUTBOX_TIMER) {
+      OUTBOX_TIMER = globalThis.__pjt014_outbox_timer = setInterval(processOutboxTick, 1000);
+    }
+  }
+  ensureOutboxTimer();
+  // Initialize writer adapter context
+  try {
+    const { initWriter } = await import('./persistence_writer.js');
+    initWriter({ enqueueOutbox, supabaseEnabled, sbFetch });
+  } catch {}
       if (method === 'GET' && pathname === '/api/change-requests') {
         const locId = query?.location_id || null;
         const st = query?.status || null;
@@ -691,7 +696,7 @@ export function create_server() {
               photo_url: body?.photo_url ?? null,
             },
             owner_signoff: Boolean(body?.owner_signoff || false),
-          }, email, enqueueOutbox, supabaseEnabled());
+          }, email);
           // Audit: 作成
           record_audit({ entity: 'change_request', entity_id: rec.id, action: 'created', actor_email: email, meta: { location_id: body.location_id } });
           return json(res, 201, { ok: true, id: rec.id });
@@ -711,7 +716,7 @@ export function create_server() {
           if (st === 'needs_fix' && reason.length < 3) {
             return json(res, 400, { ok: false, error: 'invalid_reason' });
           }
-          const w = await patchStatusWrite(id, st, reason, enqueueOutbox, supabaseEnabled(), sbFetch);
+          const w = await patchStatusWrite(id, st, reason);
           if (!w.ok && w.notFound) return json(res, 404, { ok: false, error: 'not_found' });
           // Audit: 状態変更
           try {
@@ -751,7 +756,7 @@ export function create_server() {
         try {
           const id = pathname.split('/')[3];
           const body = await read_json();
-          const w = await patchChecksWrite(id, body || {}, enqueueOutbox, supabaseEnabled(), sbFetch);
+          const w = await patchChecksWrite(id, body || {});
           if (!w.ok && w.notFound) return json(res, 404, { ok: false, error: 'not_found' });
           // Audit: チェック保存
           try {
@@ -1178,6 +1183,8 @@ export function create_server() {
           </div>
           <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee">loading...</pre>
           <div id="err" style="color:#900"></div>
+          <h2>差分（before / after）</h2>
+          <div id="diff">loading...</div>
           <h2>コンプライアンス（自動チェック・簡易）</h2>
           <div id="auto">loading...</div>
           <h2>チェックリスト</h2>
@@ -1216,6 +1223,29 @@ export function create_server() {
                 document.getElementById('loc').textContent = item.location_id || '';
                 document.getElementById('payload').textContent = JSON.stringify(item.changes||{}, null, 2);
                 document.getElementById('cur_status').textContent = 'Status: ' + (item.status||'');
+                // Diff: fetch base location and render differences
+                try{
+                  const baseRes = await fetch('/api/locations/'+encodeURIComponent(item.location_id||''));
+                  const baseJson = await baseRes.json();
+                  const base = (baseJson && baseJson.item) ? baseJson.item : {};
+                  const after = item.changes || {};
+                  const fields = [
+                    ['phone','電話'], ['hours','営業時間'], ['url','URL'], ['description','説明'], ['photo_url','写真URL']
+                  ];
+                  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+                  let rows='';
+                  for (const [key,label] of fields){
+                    const before = base && (base[key]!=null? base[key]: '');
+                    const aft = after && (after[key]!=null? after[key]: before);
+                    const changed = String(before||'') !== String(aft||'');
+                    rows += '<tr>'+
+                      '<td>'+esc(label)+'</td>'+
+                      '<td>'+esc(before||'')+'</td>'+
+                      '<td'+(changed?' style="background:#fff4f4"':'')+'>'+esc(aft||'')+'</td>'+
+                    '</tr>';
+                  }
+                  document.getElementById('diff').innerHTML = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>項目</th><th>Before</th><th>After</th></tr></thead><tbody>'+rows+'</tbody></table>';
+                }catch{ document.getElementById('diff').textContent='差分の取得に失敗しました'; }
                 // Auto-transition: move submitted -> in_review on open
                 try{
                   if ((item.status||'') === 'submitted') {

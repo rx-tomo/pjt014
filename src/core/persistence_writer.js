@@ -1,10 +1,22 @@
 import { create_change_request, set_status, set_status_and_reason, set_checks } from './change_requests_store.js';
 
-export function createChangeRequestWrite(data, email, enqueueOutbox, supabaseEnabled) {
+let _ctx = {
+  enqueueOutbox: null,
+  supabaseEnabled: () => false,
+  sbFetch: null,
+};
+
+export function initWriter(ctx) {
+  _ctx.enqueueOutbox = ctx.enqueueOutbox;
+  _ctx.supabaseEnabled = ctx.supabaseEnabled || (()=>false);
+  _ctx.sbFetch = ctx.sbFetch || null;
+}
+
+export function createChangeRequestWrite(data, email) {
   const rec = create_change_request(data);
   try { rec.created_by_email = email || null; } catch {}
-  if (supabaseEnabled) {
-    enqueueOutbox({ type: 'insert_change_request', data: {
+  if (_ctx.supabaseEnabled && _ctx.supabaseEnabled()) {
+    _ctx.enqueueOutbox && _ctx.enqueueOutbox({ type: 'insert_change_request', data: {
       id: rec.id,
       location_id: rec.payload.location_id,
       changes: rec.payload.changes,
@@ -16,12 +28,12 @@ export function createChangeRequestWrite(data, email, enqueueOutbox, supabaseEna
   return rec;
 }
 
-export async function patchStatusWrite(id, st, reason, enqueueOutbox, supabaseEnabled, sbFetch) {
+export async function patchStatusWrite(id, st, reason) {
   let rec = reason ? set_status_and_reason(id, st, reason) : set_status(id, st);
   if (!rec) {
-    if (supabaseEnabled && typeof sbFetch === 'function') {
+    if (_ctx.supabaseEnabled && _ctx.supabaseEnabled() && typeof _ctx.sbFetch === 'function') {
       const patch = Object.assign({}, { status: st }, (st==='needs_fix' && reason ? { review_note: reason } : {}));
-      const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
+      const r = await _ctx.sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json', Prefer: 'return=representation' },
         body: JSON.stringify(patch),
@@ -35,16 +47,16 @@ export async function patchStatusWrite(id, st, reason, enqueueOutbox, supabaseEn
   } else {
     const patch = { status: st };
     if (st === 'needs_fix' && reason) patch.review_note = reason;
-    enqueueOutbox({ type: 'patch_change_request', id, patch });
+    _ctx.enqueueOutbox && _ctx.enqueueOutbox({ type: 'patch_change_request', id, patch });
     return { ok: true, rec };
   }
 }
 
-export async function patchChecksWrite(id, checks, enqueueOutbox, supabaseEnabled, sbFetch) {
+export async function patchChecksWrite(id, checks) {
   const rec = set_checks(id, checks || {});
   if (!rec) {
-    if (supabaseEnabled && typeof sbFetch === 'function') {
-      const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
+    if (_ctx.supabaseEnabled && _ctx.supabaseEnabled() && typeof _ctx.sbFetch === 'function') {
+      const r = await _ctx.sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
         body: JSON.stringify({ checks: checks || {} }),
@@ -54,7 +66,6 @@ export async function patchChecksWrite(id, checks, enqueueOutbox, supabaseEnable
     }
     return { ok: false, notFound: true };
   }
-  enqueueOutbox({ type: 'patch_change_request', id, patch: { checks: checks || {} } });
+  _ctx.enqueueOutbox && _ctx.enqueueOutbox({ type: 'patch_change_request', id, patch: { checks: checks || {} } });
   return { ok: true };
 }
-
