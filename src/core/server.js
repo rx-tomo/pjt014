@@ -301,6 +301,8 @@ export function create_server() {
       </div>
     </div>
     ${DEV_ENABLED ? `<div style="margin-top:12px"><button id="seed" class="button">デモデータ投入（Owner向け）</button> <span id="seed_msg"></span></div>` : ''}
+    <h2 style="margin-top:18px">最近の操作</h2>
+    <div id="recent" class="card" style="border:1px solid #ddd;border-radius:8px;padding:12px;color:#555">loading...</div>
     <script>
       async function load() {
         try{
@@ -343,6 +345,11 @@ export function create_server() {
       (function(){ try{
         var btn=document.getElementById('seed'); if(!btn) return; var msg=document.getElementById('seed_msg');
         btn.onclick = async function(){ btn.disabled=true; msg.textContent='…'; try{ var res=await fetch('/__dev/seed?count=3'); var j=await res.json(); msg.textContent = j.ok? ('投入: '+(j.count||0)+'件'): '失敗'; }catch(e){ msg.textContent='失敗'; } finally{ btn.disabled=false; } };
+      }catch{}})();
+      // Recent activity
+      (function(){ try{
+        function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]); }); }
+        fetch('/api/recent-activity').then(function(r){return r.json()}).then(function(j){ var el=document.getElementById('recent'); if(!j||!j.ok){ el.textContent='取得に失敗しました'; return; } var arr=j.items||[]; if(!arr.length){ el.textContent='最近の操作はまだありません'; return; } el.innerHTML = '<ul style="margin:0;padding-left:18px">'+arr.map(function(a){ var id=a.entity_id||''; var href=id?('/review/'+id):'#'; return '<li><code>'+esc(a.created_at||'')+'</code> '+esc(a.action||'')+' <a href="'+href+'">'+esc(id)+'</a></li>'; }).join('')+'</ul>'; }).catch(function(){ var el=document.getElementById('recent'); el.textContent='取得に失敗しました'; });
       }catch{}})();
       load();
     </script>
@@ -447,6 +454,17 @@ export function create_server() {
           persistence,
           runtime: { outbox_len: outboxLen, store_count: storeCount, supabase_configured: supabaseEnabled() },
         });
+      }
+      // API: recent activity (audits)
+      if (method === 'GET' && pathname === '/api/recent-activity') {
+        if (supabaseEnabled()) {
+          try {
+            const r = await sbFetch('/rest/v1/audit_logs?order=created_at.desc&limit=10', { method: 'GET' }, 800);
+            if (r.ok) { const arr = await r.json(); return json(res, 200, { ok: true, items: Array.isArray(arr)? arr: [] }); }
+          } catch {}
+        }
+        const items = AUDIT.slice(-10).reverse();
+        return json(res, 200, { ok: true, items });
       }
 
       // API: locations (stub)
