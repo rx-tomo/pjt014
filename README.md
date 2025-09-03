@@ -23,6 +23,11 @@
 - `make build`: dist 準備（現状はコピーのみ）
 - `make gh-bootstrap` / `make gh-issues` / `make gh-milestones-order`: GitHub運用補助（要 `gh` とネットワーク）
 
+### UI プレビュー（サービス向けの雰囲気）
+- トップ（`/`）にブランドナビとHero/CTAを追加し、Owner/Reviewへの導線と価値ブロックを表示
+- 右上にヘルス（DB/Outbox）とロール切替（Dev）を表示
+- Ownerフォームにplaceholderやエラーメッセージを追加（URL/電話の簡易検証）
+
 ### GitHubコメント運用（改行崩れ対策）
 - 原則、本文はファイルで渡します（`--body-file`）。
 - 例: `scripts/gh_comment.sh issue <番号> .github/comments/progress_rls_audit.md`

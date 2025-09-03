@@ -84,29 +84,40 @@ function json(res, status, data) {
     return rec;
   }
 
-  // Simple top navigation to clarify who each screen is for
+  // Branded top navigation with quick links and health bar
   function header_nav() {
     const dev = DEV_ENABLED;
     const roleSwitch = dev
-      ? '<span id="__role_switch" style="float:right; color:#555">Role: '+
-        '<a data-role="owner" href="/__dev/impersonate?role=owner">Owner</a> | '+
-        '<a data-role="reviewer" href="/__dev/impersonate?role=reviewer">Reviewer</a> | '+
-        '<a data-role="admin" href="/__dev/impersonate?role=admin">Admin</a>'+ 
-        '<span id="__role_current"></span>'+ 
-        '</span>'
+      ? '<span id="__role_switch" style="float:right; color:#555">Role: '
+        + '<a data-role="owner" href="/__dev/impersonate?role=owner">Owner</a> | '
+        + '<a data-role="reviewer" href="/__dev/impersonate?role=reviewer">Reviewer</a> | '
+        + '<a data-role="admin" href="/__dev/impersonate?role=admin">Admin</a>'
+        + '<span id="__role_current"></span>'
+        + '</span>'
       : '';
     const roleHighlightScript = dev
       ? '<script>(function(){try{var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/);var r=m?decodeURIComponent(m[1]):"";var w=document.getElementById("__role_switch");if(w){var as=w.querySelectorAll("a[data-role]");for(var i=0;i<as.length;i++){if(as[i].getAttribute("data-role")===(r||"")){as[i].style.fontWeight="700";as[i].style.color="#c30";}}var cur=document.getElementById("__role_current");if(cur){cur.textContent=r?" ("+r+")":"";cur.style.color="#c30";}}catch(e){}})();</script>'
       : '';
     const healthScript = '<script>(function(){try{var hb=document.getElementById("__health_bar");if(!hb) return;fetch("/api/health").then(function(x){return x.json()}).then(function(j){if(j&&j.ok){var rt=j.runtime||{};hb.textContent=(rt.supabase_configured?"DB:on":"DB:off")+" | Outbox:"+(rt.outbox_len||0);} else { hb.textContent="health: n/a"; }}).catch(function(){ hb.textContent="health: n/a"; });}catch(e){}})();</script>';
+    const brand = '<a href="/" style="text-decoration:none;color:#122;letter-spacing:0.2px"><b>GBP Ops</b> <span style="color:#456">by pjt014</span></a>';
+    const links = [
+      ['/', 'Home'],
+      ['/locations', 'Locations'],
+      ['/owner', 'Owner'],
+      ['/review', 'Review'],
+      ['/jobs', 'Jobs'],
+      ['/oauth/status', 'OAuth']
+    ].map(function(x){return '<a href="'+x[0]+'" style="margin-right:12px;color:#06c;text-decoration:none">'+x[1]+'</a>'}).join('');
     return `
-      <nav style="margin:8px 0 16px; padding-bottom:8px; border-bottom:1px solid #ddd; overflow:auto">
-        <a href="/">Home</a> |
-        <a href="/locations">Locations</a> |
-        <a href="/owner">Owner Portal</a> |
-        <a href="/review">Review Queue</a>
-        ${roleSwitch}
-        <span id="__health_bar" style="float:right; margin-right:8px; color:#555"></span>
+      <nav style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 16px;padding:10px 12px;border:1px solid #e6e9ee;border-radius:10px;background:linear-gradient(180deg,#fff,#f8fbff)">
+        <div style="display:flex;align-items:center;gap:18px">
+          <div style="font-size:15px">${brand}</div>
+          <div style="font-size:14px">${links}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="__health_bar" style="color:#555"></span>
+          ${roleSwitch}
+        </div>
       </nav>${roleHighlightScript}${healthScript}
     `;
   }
@@ -296,19 +307,66 @@ export function create_server() {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>pjt014 Dev Dashboard</title>
+    <title>GBP運用基盤 — ダッシュボード</title>
     <style>
-      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px;}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px;background:#fcfdff;color:#0b1324}
       .ok{color:#0a0}
       .err{color:#a00}
       code{background:#f4f4f4;padding:2px 4px;border-radius:4px}
       a.button{display:inline-block;padding:8px 12px;border:1px solid #333;border-radius:6px;text-decoration:none}
+      .hero{display:grid;grid-template-columns:1.2fr 1fr;gap:18px;align-items:center;border:1px solid #e6e9ee;border-radius:14px;background:linear-gradient(180deg,#ffffff,#f5f9ff);padding:20px}
+      .hero h1{font-size:26px;margin:0 0 6px}
+      .hero p.lead{margin:0 0 12px;color:#3b4a69}
+      .cta a{display:inline-block;margin-right:10px;padding:10px 14px;border-radius:8px;text-decoration:none}
+      .cta .primary{background:#0b6bcb;color:#fff;border:1px solid #0958a7}
+      .cta .secondary{background:#fff;color:#0b6bcb;border:1px solid #0b6bcb}
+      .features{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+      .feature{border:1px solid #e6e9ee;border-radius:10px;padding:12px;background:#fff}
+      .muted{color:#56607a}
     </style>
   </head>
   <body>
     ${header_nav()}
-    <h1>pjt014 Dev Dashboard</h1>
-    <p>ローカル環境の確認用ダッシュボードです。</p>
+    <section class="hero">
+      <div>
+        <h1>複数拠点のGBPを、安全かつ一貫して運用</h1>
+        <p class="lead">変更申請→承認→反映→監査を、権限/RLSと監査ログで統制。通知・レート制御・E2Eにより安定運用を実現します。</p>
+        <div class="cta">
+          <a class="primary" href="/owner">オーナーポータルを試す</a>
+          <a class="secondary" href="/review">レビュー/承認を確認</a>
+        </div>
+        <div class="features">
+          <div class="feature">
+            <b>統制</b>
+            <div class="muted">申請→承認→同期のワークフローで差分管理</div>
+          </div>
+          <div class="feature">
+            <b>安全</b>
+            <div class="muted">トークン暗号化とRLS、Cookie/CORSの本番運用</div>
+          </div>
+          <div class="feature">
+            <b>監査</b>
+            <div class="muted">誰が・いつ・何を変更したか可視化</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="border:1px dashed #c7d4ea;border-radius:12px;padding:12px;background:#fff">
+          <b>開発モードのヒント</b>
+          <ul class="muted" style="margin:6px 0 0 18px;padding:0">
+            <li>右上で Role を切替 (Owner/Reviewer)</li>
+            <li>ヘッダのヘルス: DB/on | Outbox/N を確認</li>
+            <li>まずは Owner で依頼→ Reviewer で承認</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+    <h2 style="margin-top:18px">プロダクトの価値</h2>
+    <div class="features">
+      <div class="feature"><b>一貫性</b><div class="muted">差分とupdate_maskで限定更新</div></div>
+      <div class="feature"><b>自動化</b><div class="muted">Outbox/再試行・将来のジョブ常駐</div></div>
+      <div class="feature"><b>可観測性</b><div class="muted">E2E・監査・ヘルスで安定性を担保</div></div>
+    </div>
     <div style="background:#f6fafe;border:1px solid #cde;padding:10px;border-radius:6px;margin:10px 0">
       <b>画面の使い分け（デモ）</b>
       <ul>
@@ -326,7 +384,7 @@ export function create_server() {
         </ol>
       </div>
     </div>
-    <h2>Dashboard</h2>
+    <h2>ダッシュボード</h2>
     <div id="auth" style="margin-bottom:12px;">
       <div id="status">loading...</div>
       <div id="token"></div>
@@ -827,7 +885,7 @@ export function create_server() {
           const errors = {};
           if (body.phone != null && String(body.phone).trim() !== '') {
             const phone = String(body.phone).trim();
-            const phoneOk = /^(?:\+?\d{1,4}[ \-]?)?(?:\d{2,4}[ \-]?){2,4}\d{2,4}$/.test(phone);
+            const phoneOk = /^[0-9()+\s-]{7,}$/.test(phone);
             if (!phoneOk) errors.phone = 'invalid_format';
           }
           if (body.url != null && String(body.url).trim() !== '') {
@@ -837,6 +895,15 @@ export function create_server() {
             const httpsOk = /^https:\/\//i.test(url);
             if (!parsedUrlOk) errors.url = 'invalid_url';
             else if (!httpsOk) errors.url = 'require_https';
+          }
+          if (body.description != null && String(body.description).length > 500) {
+            errors.description = 'too_long';
+          }
+          if (body.photo_url != null && String(body.photo_url).trim() !== '') {
+            const pu = String(body.photo_url).trim();
+            let ok = true; try { new URL(pu); } catch { ok = false; }
+            if (!ok) errors.photo_url = 'invalid_url';
+            else if (!/^https:\/\//i.test(pu)) errors.photo_url = 'require_https';
           }
           if (Object.keys(errors).length) return json(res, 400, { ok: false, error: 'validation_error', errors });
           const rec = createChangeRequestWrite({
@@ -1164,12 +1231,16 @@ export function create_server() {
           <h2>変更依頼フォーム（限定項目）</h2>
           <form id="req" method="post" action="/api/change-requests">
             <input type="hidden" name="location_id" value="${loc.id}" />
-            <label>電話<input name="phone" value="${loc.phone||''}" /></label>
-            <label>営業時間<input name="hours" value="${loc.hours||''}" /></label>
-            <label>URL<input name="url" value="${loc.url||''}" /></label>
-            <label>説明<textarea name="description" rows="3" id="desc"></textarea></label>
+            <label>電話<input name="phone" value="${loc.phone||''}" placeholder="例: 03-1234-5678" /></label>
+            <div id="err_phone" class="err" style="color:#900"></div>
+            <label>営業時間<input name="hours" value="${loc.hours||''}" placeholder="例: 9:00-18:00 (月-金)" /></label>
+            <label>URL<input name="url" value="${loc.url||''}" placeholder="https://example.com" /></label>
+            <div id="err_url" class="err" style="color:#900"></div>
+            <label>説明<textarea name="description" rows="3" id="desc" placeholder="例: 当院は○○に特化し、△△の方針で運営しています。"></textarea></label>
+            <div id="err_description" class="err" style="color:#900"></div>
             <div id="warn" style="color:#900"></div>
-            <label>写真URL<input name="photo_url" /></label>
+            <label>写真URL<input name="photo_url" placeholder="https://.../photo.jpg" /></label>
+            <div id="err_photo_url" class="err" style="color:#900"></div>
             <label><input type="checkbox" id="owner_signoff" name="owner_signoff" value="1"> オーナーによる内容確認（必須）</label>
             <div id="form_err" class="err"></div>
             <button id="submit_btn" type="submit">送信</button>
@@ -1259,23 +1330,27 @@ export function create_server() {
             }
             var os=document.getElementById('owner_signoff'); if (os){ os.addEventListener('change', updateSubmit); os.addEventListener('input', updateSubmit); os.addEventListener('click', updateSubmit); }
             function validUrl(u){ try{ const x=new URL(u); return /^https:/.test(x.href); }catch(e){return false;} }
-            function validPhone(p){ return /^[0-9+\s-]{7,}$/.test(String(p||'')); }
+            function validPhone(p){ return /^[0-9()+\s-]{7,}$/.test(String(p||'')); }
+            function clearFieldErrors(){ ['phone','url','description','photo_url'].forEach(function(k){ var el=document.getElementById('err_'+k); if(el) el.textContent=''; }); }
             document.getElementById('req').onsubmit = async (e)=>{
               e.preventDefault(); const f = new FormData(e.target); const obj = Object.fromEntries(f.entries());
               const errEl = document.getElementById('form_err'); const m = document.getElementById('msg');
-              m.textContent=''; errEl.textContent='';
+              m.textContent=''; errEl.textContent=''; clearFieldErrors();
               if (!document.getElementById('owner_signoff').checked){ errEl.textContent='オーナー確認への同意が必要です'; return; }
-              if (obj.url && !validUrl(String(obj.url||''))){ errEl.textContent='URLは https:// で始まる必要があります'; return; }
-              if (obj.phone && !validPhone(String(obj.phone||''))){ errEl.textContent='電話番号の形式が正しくありません'; return; }
+              if (obj.url && !validUrl(String(obj.url||''))){ var eurl=document.getElementById('err_url'); if(eurl) eurl.textContent='URLは https:// で始まる必要があります'; else errEl.textContent='URLは https:// で始まる必要があります'; return; }
+              if (obj.phone && !validPhone(String(obj.phone||''))){ var eph=document.getElementById('err_phone'); if(eph) eph.textContent='電話番号の形式が正しくありません'; else errEl.textContent='電話番号の形式が正しくありません'; return; }
+              if (obj.description && String(obj.description||'').length > 500){ var ed=document.getElementById('err_description'); if(ed) ed.textContent='説明は500文字以内で入力してください'; else errEl.textContent='説明は500文字以内で入力してください'; return; }
               obj.owner_signoff = true;
               try{
                 const r = await fetch('/api/change-requests', { method:'POST', headers:{'content-type':'application/json'}, credentials:'same-origin', body: JSON.stringify(obj)});
                 const j = await r.json();
                 if(j.ok){ m.innerHTML='送信しました: '+j.id+' <a href="/__dev/impersonate?role=reviewer&next=%2Freview">レビューキューを開く（レビュアーに切替）</a>'; (e.target).reset(); updateSubmit(); loadRequests(); } else {
                   if (j.error==='validation_error'){
-                    if (j.errors && j.errors.url){ errEl.textContent='URLは https:// で始まる必要があります'; }
-                    else if (j.errors && j.errors.phone){ errEl.textContent='電話番号の形式が正しくありません'; }
-                    else { errEl.textContent='入力に誤りがあります'; }
+                    var errs=j.errors||{}; var any=false;
+                    if (errs.url){ var el=document.getElementById('err_url'); if(el) el.textContent=(errs.url==='invalid_url'?'URLの形式が正しくありません':'URLは https:// で始まる必要があります'); any=true; }
+                    if (errs.phone){ var elp=document.getElementById('err_phone'); if(elp) elp.textContent='電話番号の形式が正しくありません'; any=true; }
+                    if (errs.description){ var eld=document.getElementById('err_description'); if(eld) eld.textContent='説明は500文字以内で入力してください'; any=true; }
+                    if (!any){ errEl.textContent='入力に誤りがあります'; }
                   } else if (j.error==='invalid_owner_signoff'){
                     errEl.textContent='オーナー確認への同意が必要です';
                   } else {

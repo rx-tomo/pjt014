@@ -42,3 +42,6 @@ gh-issues:
 gh-milestones-order:
 	@./scripts/gh_milestones_order.sh
 
+.PHONY: qa-smoke
+qa-smoke:
+	@bash scripts/qa_smoke.sh
