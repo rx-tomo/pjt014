@@ -945,7 +945,19 @@ export function create_server() {
           return json(res, 500, { ok: false, error: String(e&&e.message||e) });
         }
       }
+      // Helper: reviewer-only guard (dev impersonation). In production, service role enforces at API boundary.
+      function devRequireReviewer() {
+        if (!DEV_ENABLED) return true;
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const role = (parsed.role || '').toString();
+          return role === 'reviewer' || role === 'admin';
+        } catch { return false; }
+      }
+
       if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/status')) {
+        if (!devRequireReviewer()) return json(res, 403, { ok: false, error: 'forbidden' });
         try {
           const id = pathname.split('/')[3];
           const body = await read_json();
@@ -994,6 +1006,7 @@ export function create_server() {
         } catch { return json(res, 400, { ok: false, error: 'bad_request' }); }
       }
       if (method === 'POST' && pathname.startsWith('/api/change-requests/') && pathname.endsWith('/checks')) {
+        if (!devRequireReviewer()) return json(res, 403, { ok: false, error: 'forbidden' });
         try {
           const id = pathname.split('/')[3];
           const body = await read_json();
