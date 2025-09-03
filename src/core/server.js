@@ -276,12 +276,31 @@ export function create_server() {
       <a class="button" id="logout-btn" href="/api/gbp/logout" style="display:none">ログアウト</a>
       <button class="button" id="refresh-btn" style="display:none">アクセストークン更新</button>
     </p>
-    <h2>その他</h2>
-    <ul>
-      <li><a href="/jobs">Jobs UI (placeholder)</a></li>
-      <li><a href="/locations">ロケーション一覧（読み取り）</a></li>
-      <li><a href="/owner">オーナーポータル（最小）</a></li>
-    </ul>
+    <h2>クイックアクション（ロール別）</h2>
+    <div id="qa" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div class="card" id="qa-owner" style="border:1px solid #ddd;border-radius:8px;padding:12px;display:none">
+        <h3>Owner</h3>
+        <ul>
+          <li><a href="/owner">ロケーションを選ぶ</a></li>
+          <li><a href="/locations">ロケーション一覧を見る</a></li>
+        </ul>
+      </div>
+      <div class="card" id="qa-reviewer" style="border:1px solid #ddd;border-radius:8px;padding:12px;display:none">
+        <h3>Reviewer</h3>
+        <ul>
+          <li><a href="/review">承認キューを開く</a></li>
+          <li><a href="/locations">ロケーション一覧を見る</a></li>
+        </ul>
+      </div>
+      <div class="card" id="qa-admin" style="border:1px solid #ddd;border-radius:8px;padding:12px;display:none">
+        <h3>Admin</h3>
+        <ul>
+          <li><a href="/jobs">ジョブUI</a></li>
+          <li><a href="/oauth/status">OAuthステータス</a></li>
+        </ul>
+      </div>
+    </div>
+    ${DEV_ENABLED ? `<div style="margin-top:12px"><button id="seed" class="button">デモデータ投入（Owner向け）</button> <span id="seed_msg"></span></div>` : ''}
     <script>
       async function load() {
         try{
@@ -313,6 +332,18 @@ export function create_server() {
           el.className = 'err';
         }
       }
+      // Set up role-based quick actions
+      (function(){ try{
+        var m=document.cookie.match(/(?:^|;)[\s]*role=([^;]+)/); var r=m?decodeURIComponent(m[1]):'';
+        function show(id){ var el=document.getElementById(id); if(el) el.style.display='block'; }
+        if(!r){ show('qa-owner'); show('qa-reviewer'); show('qa-admin'); } // 未設定なら全部
+        if(r==='owner') show('qa-owner'); if(r==='reviewer') show('qa-reviewer'); if(r==='admin') show('qa-admin');
+      }catch{}})();
+      // Seed button
+      (function(){ try{
+        var btn=document.getElementById('seed'); if(!btn) return; var msg=document.getElementById('seed_msg');
+        btn.onclick = async function(){ btn.disabled=true; msg.textContent='…'; try{ var res=await fetch('/__dev/seed?count=3'); var j=await res.json(); msg.textContent = j.ok? ('投入: '+(j.count||0)+'件'): '失敗'; }catch(e){ msg.textContent='失敗'; } finally{ btn.disabled=false; } };
+      }catch{}})();
       load();
     </script>
   </body>
@@ -335,6 +366,44 @@ export function create_server() {
       }
       if (method === 'POST' && pathname === '/api/gbp/oauth/refresh') {
         return handle_oauth_refresh(req, res);
+      }
+
+      // Dev: seed demo change requests
+      if (DEV_ENABLED && method === 'GET' && pathname === '/__dev/seed') {
+        try {
+          const url = new URL(req.url || '', 'http://x');
+          const n = Math.min(10, Math.max(1, Number(url.searchParams.get('count') || 3)));
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const role = (parsed.role || '').toString();
+          let email = null;
+          try {
+            const secret = process.env.APP_SECRET || 'dev_secret';
+            const sidSigned = parsed.sid;
+            if (sidSigned) {
+              const sid = verify_value(sidSigned, secret);
+              const session = sid ? get_session(sid) : null;
+              email = session?.user?.email || null;
+            }
+          } catch {}
+          if (!email && role === 'owner') email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+          const locIds = email ? get_owned_location_ids(email) : ['loc1'];
+          const locId = locIds[0] || 'loc1';
+          let created = 0;
+          for (let i=0;i<n;i++) {
+            try {
+              const desc = 'デモ説明 ' + Math.random().toString(36).slice(2,8);
+              const num = Math.floor(1000+Math.random()*9000);
+              createChangeRequestWrite({
+                location_id: locId,
+                changes: { description: desc, phone: '03-'+num+'-'+num },
+                owner_signoff: true,
+              }, email || 'demo@example.com');
+              created++;
+            } catch {}
+          }
+          return json(res, 200, { ok: true, count: created, location_id: locId });
+        } catch { return json(res, 500, { ok: false }); }
       }
 
       if (method === 'GET' && pathname === '/api/dashboard') {
