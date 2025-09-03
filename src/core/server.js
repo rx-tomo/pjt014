@@ -829,12 +829,55 @@ export function create_server() {
             if (r.ok) {
               const arr = await r.json();
               const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
-              if (item) { try { upsert_change_request(item); } catch {} return json(res, 200, { ok: true, item }); }
+              if (item) {
+                // reviewer/admin はOK、オーナーは所属ロケーションのみ
+                try {
+                  const cookies = req.headers.cookie || '';
+                  const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+                  const role = (parsed.role || '').toString();
+                  if (!(DEV_ENABLED && (role==='reviewer'||role==='admin'))) {
+                    const locId = item.location_id || item.payload?.location_id || null;
+                    const email = (function(){
+                      try {
+                        const secret = process.env.APP_SECRET || 'dev_secret';
+                        const sidSigned = parsed.sid;
+                        if (sidSigned) { const sid = verify_value(sidSigned, secret); const session = sid ? get_session(sid) : null; return session?.user?.email || null; }
+                      } catch {}
+                      if (DEV_ENABLED && role==='owner') return process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+                      return null;
+                    })();
+                    if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+                    const allowed = new Set(get_owned_location_ids(email));
+                    if (!locId || !allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+                  }
+                } catch {}
+                try { upsert_change_request(item); } catch {}
+                return json(res, 200, { ok: true, item });
+              }
             }
           } catch {}
         }
         const rec = get_change_request(id);
         if (!rec) return json(res, 404, { ok: false, error: 'not_found' });
+        // reviewer/admin はOK、オーナーは所属ロケーションのみ
+        try {
+          const cookies = req.headers.cookie || '';
+          const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+          const role = (parsed.role || '').toString();
+          if (!(DEV_ENABLED && (role==='reviewer'||role==='admin'))) {
+            const locId = rec.payload?.location_id || null;
+            let email = null;
+            try {
+              const secret = process.env.APP_SECRET || 'dev_secret';
+              const sidSigned = parsed.sid;
+              if (sidSigned) { const sid = verify_value(sidSigned, secret); const session = sid ? get_session(sid) : null; email = session?.user?.email || null; }
+            } catch {}
+            if (!email && DEV_ENABLED && role==='owner') email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+            if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+            const allowed = new Set(get_owned_location_ids(email));
+            if (!locId || !allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+          }
+        } catch {}
         const item = {
           id: rec.id,
           location_id: rec.payload?.location_id || null,
@@ -1032,6 +1075,25 @@ export function create_server() {
         let changes = null;
         const rec = get_change_request(id || '');
         if (rec) {
+          // reviewer/admin はOK、オーナーは所属ロケーションのみ
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const role = (parsed.role || '').toString();
+            if (!(DEV_ENABLED && (role==='reviewer'||role==='admin'))) {
+              const locId = rec.payload?.location_id || null;
+              let email = null;
+              try {
+                const secret = process.env.APP_SECRET || 'dev_secret';
+                const sidSigned = parsed.sid;
+                if (sidSigned) { const sid = verify_value(sidSigned, secret); const session = sid ? get_session(sid) : null; email = session?.user?.email || null; }
+              } catch {}
+              if (!email && DEV_ENABLED && role==='owner') email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+              if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+              const allowed = new Set(get_owned_location_ids(email));
+              if (!locId || !allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+            }
+          } catch {}
           changes = rec?.payload?.changes || {};
         } else if (supabaseEnabled()) {
           try {
@@ -1039,7 +1101,28 @@ export function create_server() {
             if (r.ok) {
               const arr = await r.json();
               const item = Array.isArray(arr) && arr[0] ? arr[0] : null;
-              if (item) changes = item?.changes || {};
+              if (item) {
+                // reviewer/admin はOK、オーナーは所属ロケーションのみ
+                try {
+                  const cookies = req.headers.cookie || '';
+                  const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+                  const role = (parsed.role || '').toString();
+                  if (!(DEV_ENABLED && (role==='reviewer'||role==='admin'))) {
+                    const locId = item.location_id || item.payload?.location_id || null;
+                    let email = null;
+                    try {
+                      const secret = process.env.APP_SECRET || 'dev_secret';
+                      const sidSigned = parsed.sid;
+                      if (sidSigned) { const sid = verify_value(sidSigned, secret); const session = sid ? get_session(sid) : null; email = session?.user?.email || null; }
+                    } catch {}
+                    if (!email && DEV_ENABLED && role==='owner') email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+                    if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+                    const allowed = new Set(get_owned_location_ids(email));
+                    if (!locId || !allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+                  }
+                } catch {}
+                changes = item?.changes || {};
+              }
             }
           } catch {}
         }
@@ -1057,6 +1140,37 @@ export function create_server() {
       if (method === 'GET' && pathname === '/api/audits') {
         const e = (query?.entity || '').toString();
         const eid = (query?.id || '').toString();
+        // change_request の監査はオーナーも参照可だが、自ロケーションに限る（レビュアー/管理者は全件）
+        if (e === 'change_request' && eid) {
+          try {
+            const cookies = req.headers.cookie || '';
+            const parsed = Object.fromEntries((cookies||'').split(';').map(s=>s.trim().split('=').map(decodeURIComponent)).filter(a=>a.length===2));
+            const role = (parsed.role || '').toString();
+            const isReviewer = DEV_ENABLED && (role==='reviewer'||role==='admin');
+            if (!isReviewer) {
+              // authorise by location ownership
+              let locId = null;
+              const rec = get_change_request(eid);
+              if (rec) locId = rec.payload?.location_id || null;
+              if (!locId && supabaseEnabled()) {
+                try {
+                  const r = await sbFetch(`/rest/v1/owner_change_requests?id=eq.${encodeURIComponent(eid)}&select=location_id`, { method: 'GET' }, 600);
+                  if (r.ok) { const arr = await r.json(); const item = Array.isArray(arr)&&arr[0]?arr[0]:null; locId = item?.location_id || null; }
+                } catch {}
+              }
+              let email = null;
+              try {
+                const secret = process.env.APP_SECRET || 'dev_secret';
+                const sidSigned = parsed.sid;
+                if (sidSigned) { const sid = verify_value(sidSigned, secret); const session = sid ? get_session(sid) : null; email = session?.user?.email || null; }
+              } catch {}
+              if (!email && DEV_ENABLED && role==='owner') email = process.env.DEV_OWNER_EMAIL || 'owner1@example.com';
+              if (!email) return json(res, 401, { ok: false, error: 'unauthorized' });
+              const allowed = new Set(get_owned_location_ids(email));
+              if (!locId || !allowed.has(locId)) return json(res, 403, { ok: false, error: 'forbidden' });
+            }
+          } catch {}
+        }
         // Prefer Supabase when available and filters provided
         if (supabaseEnabled() && e && eid) {
           try {
