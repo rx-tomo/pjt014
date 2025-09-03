@@ -432,6 +432,24 @@ export function create_server() {
       }
       function enqueueOutbox(task) {
         const now = Date.now();
+        // de-duplication/merge
+        if (task.type === 'insert_change_request' && task.data && task.data.id) {
+          const exists = OUTBOX.find(t => t.type === 'insert_change_request' && t.data && t.data.id === task.data.id);
+          if (exists) return; // already scheduled
+        }
+        if (task.type === 'patch_change_request' && task.id) {
+          const exists = OUTBOX.find(t => t.type === 'patch_change_request' && t.id === task.id);
+          if (exists) {
+            exists.patch = Object.assign({}, exists.patch || {}, task.patch || {});
+            outbox_save();
+            return;
+          }
+        }
+        if (task.type === 'insert_notification') {
+          const sig = JSON.stringify({ target: task.data?.target || null, subject: task.data?.subject || null, ch: task.data?.channel||'change_request' });
+          const exists = OUTBOX.find(t => t.type === 'insert_notification' && JSON.stringify({ target: t.data?.target||null, subject: t.data?.subject||null, ch: t.data?.channel||'change_request' }) === sig);
+          if (exists) return;
+        }
         OUTBOX.push({ ...task, attempts: 0, nextAt: now });
         outbox_save();
       }
@@ -516,13 +534,14 @@ export function create_server() {
               }
             throw new Error('notification_persist_failed:'+r.status);
           }
-          } catch (e) {
-            task.attempts += 1;
-            const backoff = Math.min(60000, 1000 * Math.pow(2, Math.min(8, task.attempts - 1)));
-            task.nextAt = Date.now() + backoff;
-            console.warn('[outbox] retry in', backoff, 'ms', e && e.message ? e.message : e);
-          }
+        } catch (e) {
+          task.attempts += 1;
+          const backoff = Math.min(60000, 1000 * Math.pow(2, Math.min(8, task.attempts - 1)));
+          task.nextAt = Date.now() + backoff;
+          console.warn('[outbox] retry in', backoff, 'ms', e && e.message ? e.message : e);
+          outbox_save();
         }
+      }
       }
       function ensureOutboxTimer() {
         if (!OUTBOX_TIMER) {
@@ -919,10 +938,12 @@ export function create_server() {
         const source = get_locations();
         const items = source.filter(it => allowed.has(it.id));
         const li = items.map(it=>('<li><a href="/owner/'+it.id+'">'+it.name+'</a> - '+(it.address||'')+'</li>')).join('');
+        const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })();
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Owner Portal - Select</title>
           <style>body{font-family:system-ui;padding:20px;} li{margin:6px 0}</style>
         </head><body>
           ${header_nav()}
+          ${offlineBanner}
           <h1>オーナーポータル：ロケーション選択</h1>
           <p style="color:#555">対象: オーナー。できること: 編集対象のロケーションを選択。</p>
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
@@ -977,6 +998,7 @@ export function create_server() {
           </style>
         </head><body>
           ${header_nav()}
+          ${(function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })()}
           <p><a href="/owner">← ロケーション選択へ</a></p>
           <h1>オーナーポータル（最小） - ${loc.name}</h1>
           <p style="color:#555">対象: オーナー。できること: 基本項目の変更依頼を提出（保存は開発用の一時保存）。</p>
@@ -1113,10 +1135,12 @@ export function create_server() {
             res.statusCode = 302; res.setHeader('location', '/login'); return res.end();
           }
         } catch {}
+        const offlineBanner = (function(){ try { const hasDb = supabaseEnabled(); const q=(globalThis.__pjt014_outbox||[]).length; if(!hasDb) return '<div style="background:#fff7cc;border:1px solid #e6c200;padding:8px;border-radius:6px;margin:8px 0">オフラインモード: 変更は一時保存され、後で送信されます（キュー '+q+' 件）</div>'; if(q>0) return '<div style="background:#f6fbff;border:1px solid #9ad;padding:8px;border-radius:6px;margin:8px 0">送信待ち: '+q+' 件</div>'; }catch{} return ''; })();
         const page = `<!doctype html><html><head><meta charset="utf-8"><title>Review Queue</title>
           <style>body{font-family:system-ui;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px} select{margin-left:8px} .muted{color:#666}</style>
         </head><body>
           ${header_nav()}
+          ${offlineBanner}
           <h1>承認キュー</h1>
           <p style="color:#555">対象: オペレーター/承認者。できること: 依頼のレビュー/承認/差戻し。</p>
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
