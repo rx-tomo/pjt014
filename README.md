@@ -22,6 +22,15 @@
 - `make lint`: ESLint + Prettier チェック
 - `make build`: dist 準備（現状はコピーのみ）
 - `make gh-bootstrap` / `make gh-issues` / `make gh-milestones-order`: GitHub運用補助（要 `gh` とネットワーク）
+  
+CI では以下を実行します（GitHub Actions `CI` ワークフロー）：
+- Lint + Unit（Node内蔵ランナー）
+- E2E（Playwright, Chromium, ワーカー=1, 失敗時のみアーティファクト）
+
+### UI プレビュー（サービス向けの雰囲気）
+- トップ（`/`）にブランドナビとHero/CTAを追加し、Owner/Reviewへの導線と価値ブロックを表示
+- 右上にヘルス（DB/Outbox）とロール切替（Dev）を表示
+- Ownerフォームにplaceholderやエラーメッセージを追加（URL/電話の簡易検証）
 
 ### GitHubコメント運用（改行崩れ対策）
 - 原則、本文はファイルで渡します（`--body-file`）。
@@ -32,6 +41,24 @@
 ## 環境変数
 
 `.env.example` を `.env` にコピーし、必要な値を設定してください。秘密情報はコミットしないでください。
+
+- 追加（本番向け）
+  - `COOKIE_SECURE=1`（推奨。本番HTTPS配下でCookieにSecure付与。未指定時はproductionで自動ON）
+  - `ALLOWED_ORIGINS="https://example.com,https://admin.example.com"`（指定時はCORSをこれらに限定。未指定ならワイドオープン）
+  - 通知関連（任意）
+    - `NOTIFY_PROVIDER=console|webhook|none`（デフォルトnone）
+    - `NOTIFY_WEBHOOK_URL=...`（webhook選択時に送信先URL）
+  - オフライン永続（任意）
+    - `PERSIST_DIR=tmp/state`（ローカルのディスク永続先。再起動後も依頼/Outboxを保持）
+  - Outbox（再送/最終整合）（任意）
+    - `OUTBOX_MAX_ATTEMPTS=9`（最大試行回数。到達でfailedに遷移）
+
+## 通知（任意の土台）
+
+- 仕組み: `src/core/notifier.js` にて `NOTIFY_PROVIDER` に応じて console / webhook に送信
+- トリガー: 変更依頼の状態更新（approved / needs_fix）
+- Supabase接続時: `notifications` テーブルにも保存（Outbox経由）
+- 将来: メール/その他チャネル・テンプレートの拡張
 
 ## ディレクトリ
 
@@ -48,14 +75,23 @@
 - `GET /api/gbp/oauth` OAuth開始（スタブ応答）
 - `GET /api/dashboard` ダッシュボード用の集約JSON（セッション・Supabaseの最新保存など）
 - `GET /jobs` ジョブUIプレースホルダー
+ - 監査ログ
+   - `GET /api/audits?entity=change_request&id=<id>` 監査ログ取得（メモリ or Supabase）
 
 - 変更依頼（Owner/Review フロー）
   - `GET /api/change-requests` 一覧（`?location_id=` で絞り込み）
+    - 追加: `?status=submitted|in_review|needs_fix|approved|syncing|synced|failed` で状態絞り込み
   - `GET /api/change-requests/:id` 単体取得
   - `POST /api/change-requests` 作成（必須: `location_id`。任意: `phone,hours,url,description,photo_url,owner_signoff`）
   - `POST /api/change-requests/:id/status` ステータス更新（`submitted|in_review|needs_fix|approved|syncing|synced|failed`）
+    - `needs_fix` の場合は `reason` が必須。監査ログに理由を記録、Supabase連携時は `review_note` に保存。
+    - 通知: `needs_fix` / `approved` で `NOTIFY_PROVIDER` に基づき通知（console/webhook）。Supabase接続時は `notifications` にも保存。
   - `POST /api/change-requests/:id/checks` レビューチェック保存（JSONブール群）
+  - `GET /api/change-requests/:id/compliance` 自動チェック結果
+  - `GET /api/change-requests/:id/sync` 同期状態（pending/failed/synced）を返却
+  - `POST /api/change-requests/:id/resync` 永続化の再送（idempotent）
   - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）
+  - 備考: 自動チェック取得に失敗した場合、クライアント側で簡易フォールバックを実行
 
 ### コンプライアンス設定
 - NG辞書は `config/compliance_rules.json` に定義。存在しない場合はデフォルト（コード内）を使用します。
@@ -89,6 +125,11 @@
 - DDパッケージ（想定）: `docs/product/DD_PACKAGE.md`
 - 営業テンプレ（参考）: `docs/product/SALES_TEMPLATES.md`
 - コンプライアンス指針: `docs/product/COMPLIANCE.md`
+
+## 実装仕様・検証手順（開発）
+
+- 変更依頼仕様まとめ: `docs/specs/CHANGE_REQUESTS.md`
+- 挙動確認チェックリスト: `docs/ops/VERIFICATION.md`
 
 ## テスト
 

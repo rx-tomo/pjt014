@@ -62,6 +62,12 @@ function build_google_auth_url({ state, nonce }) {
 }
 
 export function handle_oauth_start(_req, res, query) {
+  const SECURE = (function(){
+    const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes') return true;
+    if (v === '0' || v === 'false' || v === 'no') return false;
+    return process.env.NODE_ENV === 'production';
+  })();
   const provider = query?.provider || 'google';
   if (provider !== 'google') {
     return write_json(res, 400, { ok: false, error: 'unsupported_provider' });
@@ -70,8 +76,8 @@ export function handle_oauth_start(_req, res, query) {
   const nonce = Math.random().toString(36).slice(2);
   const secret = process.env.APP_SECRET || 'dev_secret';
   // 状態保持: stateを署名付きCookieとして短時間保持
-  set_cookie(res, 'oauth_state', sign_value(state, secret), { httpOnly: true, maxAge: 600, sameSite: 'Lax' });
-  set_cookie(res, 'oauth_nonce', sign_value(nonce, secret), { httpOnly: true, maxAge: 600, sameSite: 'Lax' });
+  set_cookie(res, 'oauth_state', sign_value(state, secret), { httpOnly: true, maxAge: 600, sameSite: 'Lax', secure: SECURE });
+  set_cookie(res, 'oauth_nonce', sign_value(nonce, secret), { httpOnly: true, maxAge: 600, sameSite: 'Lax', secure: SECURE });
   const url = build_google_auth_url({ state, nonce });
   if (!url) {
     return write_json(res, 500, { ok: false, error: 'google_not_configured' });
@@ -80,6 +86,12 @@ export function handle_oauth_start(_req, res, query) {
 }
 
 export async function handle_oauth_callback(_req, res, query) {
+  const SECURE = (function(){
+    const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes') return true;
+    if (v === '0' || v === 'false' || v === 'no') return false;
+    return process.env.NODE_ENV === 'production';
+  })();
   const { code, state, error } = query || {};
   if (error) return write_json(res, 400, { ok: false, error });
   if (!code) return write_json(res, 400, { ok: false, error: 'missing_code' });
@@ -92,8 +104,8 @@ export async function handle_oauth_callback(_req, res, query) {
     return write_json(res, 400, { ok: false, error: 'invalid_state' });
   }
   // 1回限り
-  clear_cookie(res, 'oauth_state');
-  clear_cookie(res, 'oauth_nonce');
+  clear_cookie(res, 'oauth_state', { secure: SECURE });
+  clear_cookie(res, 'oauth_nonce', { secure: SECURE });
 
   const body = new URLSearchParams({
     code,
@@ -187,7 +199,7 @@ export async function handle_oauth_callback(_req, res, query) {
     // セッション作成（開発用：メモリ保持）
     const tokens_obtained_at = Date.now();
     const sid = create_session({ provider: 'google', user: { email, sub: payload.sub }, tokens, tokens_obtained_at, oidc: { verified: true } }, 3600);
-    set_cookie(res, 'sid', sign_value(sid, secret), { httpOnly: true, maxAge: 3600, sameSite: 'Lax' });
+    set_cookie(res, 'sid', sign_value(sid, secret), { httpOnly: true, maxAge: 3600, sameSite: 'Lax', secure: SECURE });
     // UX: ダッシュボードへ戻す
     return redirect(res, `/?ok=1&persisted=${persisted ? '1' : '0'}`);
   } catch (e) {
@@ -196,6 +208,12 @@ export async function handle_oauth_callback(_req, res, query) {
 }
 
 export function handle_oauth_logout(req, res) {
+  const SECURE = (function(){
+    const v = String(process.env.COOKIE_SECURE || '').toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes') return true;
+    if (v === '0' || v === 'false' || v === 'no') return false;
+    return process.env.NODE_ENV === 'production';
+  })();
   const cookies = parse_cookies(req.headers.cookie || '');
   const secret = process.env.APP_SECRET || 'dev_secret';
   const signed_sid = cookies.sid;
@@ -203,7 +221,7 @@ export function handle_oauth_logout(req, res) {
     const sid = verify_value(signed_sid, secret);
     if (sid) destroy_session(sid);
   }
-  clear_cookie(res, 'sid');
+  clear_cookie(res, 'sid', { secure: SECURE });
   return redirect(res, '/');
 }
 
