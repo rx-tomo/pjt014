@@ -22,6 +22,10 @@
 - `make lint`: ESLint + Prettier チェック
 - `make build`: dist 準備（現状はコピーのみ）
 - `make gh-bootstrap` / `make gh-issues` / `make gh-milestones-order`: GitHub運用補助（要 `gh` とネットワーク）
+  
+CI では以下を実行します（GitHub Actions `CI` ワークフロー）：
+- Lint + Unit（Node内蔵ランナー）
+- E2E（Playwright, Chromium, ワーカー=1, 失敗時のみアーティファクト）
 
 ### UI プレビュー（サービス向けの雰囲気）
 - トップ（`/`）にブランドナビとHero/CTAを追加し、Owner/Reviewへの導線と価値ブロックを表示
@@ -87,6 +91,7 @@
   - `GET /api/change-requests/:id/sync` 同期状態（pending/failed/synced）を返却
   - `POST /api/change-requests/:id/resync` 永続化の再送（idempotent）
   - `POST /api/compliance-check` 即時チェックAPI（`{ changes: { description } }`）
+  - 備考: 自動チェック取得に失敗した場合、クライアント側で簡易フォールバックを実行
 
 ### コンプライアンス設定
 - NG辞書は `config/compliance_rules.json` に定義。存在しない場合はデフォルト（コード内）を使用します。

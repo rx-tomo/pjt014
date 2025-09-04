@@ -1,0 +1,60 @@
+date: 2025-09-03
+title: UI刷新・認可/RLS強化・Outbox整合/通知・運用ドキュメント整理
+summary:
+  - トップにブランドナビ＋Hero/CTAを追加し、サービス志向の導線と価値訴求を明確化
+  - 入力バリデーション（URL/電話/説明/写真URL）をクライアント/サーバで強化
+  - CI（lint/test）をGitHub Actionsで追加
+  - 認可/RLSの強化（Reviewer/AdminのRLSとAPIガード、Ownerのロケーション境界チェック）
+  - Outboxの最終整合を可視化（pending/failed/synced）＋再送API（resync）を追加
+  - セキュリティ（COOKIE_SECURE/CORS）と通知運用のガイドを整備
+backend:
+  - 認可/APIガード: reviewer/admin 必須の操作（/status, /checks）を明示。Ownerは所属ロケーションのみ許可
+  - 取得系ガード: `/api/change-requests/:id`, `/.../:id/compliance`, `/api/audits?entity=change_request&id=...` に境界チェック
+  - Outbox: task.status(queued/retrying/failed)/lastError/指数バックオフ/最大試行(OUTBOX_MAX_ATTEMPTS)
+  - 新規API:
+    - GET `/api/change-requests/:id/sync` → { state, attempts, nextAt, lastError }
+    - POST `/api/change-requests/:id/resync` → 再送（idempotentにinsert+patchを再キュー）
+  - 通知: 状態更新時に console/webhook 送信 + Supabase接続時は notifications へ永続（Outbox）
+db_rls:
+  - `supabase/migrations/0012_owner_reviewer_policies.sql`
+    - owner_change_requests: reviewer/admin は select/update 許可（ownerは自身の行のみに制限）
+    - audit_logs: reviewer/admin は select 許可（ownerは自分の記録）
+ui_ux:
+  - トップ: ブランドナビ（Home/Locations/Owner/Review/Jobs/OAuth + ヘルス/Role）、Hero/CTA、価値ブロック
+  - Owner: placeholderとエラー文言、一覧にSync列（pending/failed/synced）と再送ボタン
+  - Review: 詳細にSync表示と再送ボタン、in_review自動遷移/差分テーブル/チェック保存/状態更新
+security_stability:
+  - 本番時の警告ログ: ALLOWED_ORIGINS未設定・COOKIE_SECURE未設定を検知
+  - CORS/COOKIE_SECUREの運用方針はRunbookに明記
+ci:
+  - `.github/workflows/ci.yml` で npm ci → make lint → make test
+docs_ops:
+  - README: Outbox/通知/同期APIを追記
+  - `docs/ops/PRODUCTION_RUNBOOK.md`: セキュリティ/通知/Outbox章を追加し、本番運用の前提を明記
+  - 新規: `docs/ops/NOTIFICATIONS.md`（設定・仕組み・ペイロード例・将来拡張）
+issues_opened:
+  - 47: 入力バリデーション強化: phone/URL形式
+  - 48: CI整備: lint/test自動実行と保護
+  - 49: Auth/RLS強化: 役割別認可とRLS適用
+  - 50: 非同期保存の整合性（Outboxリトライ/最終整合性）
+  - 51: [Security] COOKIE_SECURE/CORSの導入
+  - 52: [Notify] console/webhook通知の土台
+commits:
+  - feat(ui): ブランドナビ/Hero/CTA、Ownerフォーム文言・検証の改善（feature/dev）
+  - feat(validation): URL/電話/説明/写真URLの検証（クライアント/サーバ）
+  - ci: GitHub Actions追加（lint/test）
+  - feat(auth/rls): Reviewer/Admin向けRLSとAPIレビュアーガードの追加
+  - feat(outbox): 同期状態API + 再送API、failed遷移/lastErrorの記録
+  - docs: Runbookと通知ガイドを拡充、.env.exampleにセキュリティ/通知/Outboxを追記
+known:
+  - dev Role切替による簡易認可での動作を前提（本番JWTロール導入時はRLS/クレーム設計を擦り合わせ）
+  - Outbox failedの恒久対処（レート制御/デッドレター運用）は将来のWorker導入時に拡張
+next_steps:
+  - Rate limit/DoS対策（プロキシ/アプリの簡易レート制御）
+  - 通知テンプレの整備（日本語文面の統一・翻訳キー化・宛先解決）
+  - E2Eの最小CI導入（必要であればトップ/Owner/Reviewのスモーク）
+  - RLSのテナント/組織境界（multi-tenant）設計の洗い出し
+handoff_note:
+  - Devプレビュー: `make dev` → `http://localhost:3014/`
+  - Ownerで依頼作成→Reviewで承認/差戻し。Sync列/Sync表示で状態を確認、必要なら「再送」
+  - 本番は必ず `COOKIE_SECURE=1` と `ALLOWED_ORIGINS=...` を設定

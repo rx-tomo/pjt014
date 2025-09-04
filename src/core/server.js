@@ -1414,17 +1414,15 @@ export function create_server() {
           <div class="card" style="margin:10px 0; background:#fafcff">
             <b>使い方</b>
             <ol style="margin:6px 0 0 18px; padding:0">
-              <li>変更したい項目を入力（説明は自動チェック対象）</li>
-              <li>自動チェックの警告を確認し、必要に応じて文面を修正</li>
-              <li>「オーナーによる内容確認（必須）」にチェックを入れる</li>
-              <li>送信すると下の一覧に追加され、レビュー画面で確認できます</li>
+              <li>変更項目を入力（説明は自動チェック対象）</li>
+              <li>警告が出たら文面を調整</li>
+              <li>同意にチェックして送信</li>
             </ol>
           </div>
           <div class="grid">
             <div class="card">
-              <h2>ステータス/KPI（stub）</h2>
+              <h2>状態</h2>
               <div id="owner_status">${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) ? 'OAuth: configured' : 'OAuth: not configured'}</div>
-              <ul id="kpi"><li>Profile completeness: stub</li><li>Token: see Dashboard</li></ul>
             </div>
             <div class="card">
           <h2>変更依頼フォーム（限定項目）</h2>
@@ -1517,15 +1515,30 @@ export function create_server() {
                 tb.addEventListener('click', async function(ev){ var t=ev.target; if(t && t.classList && t.classList.contains('rs')){ var id=t.getAttribute('data-id'); t.disabled=true; try{ var r=await fetch('/api/change-requests/'+encodeURIComponent(id)+'/resync', { method:'POST' }); var j=await r.json(); if(j&&j.ok){ t.textContent='再送済'; } else { t.textContent='失敗'; } }catch(e){ t.textContent='失敗'; } }});
               }catch(e){ const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" style="color:#900">一覧の取得に失敗しました</td>'; tb.appendChild(tr); }
             }
+            function clientCompliance(text){
+              try{
+                const rules=[
+                  {label:'過大表現',res:[/絶対/gi,/完全に治る/gi,/No\.?1/gi,/最高/gi,/最安/gi]},
+                  {label:'個人情報',res:[/氏名/gi,/電話番号/gi,/住所/gi]},
+                  {label:'ビフォーアフター',res:[/ビフォー/gi,/アフター/gi,/before after/gi]},
+                ];
+                const hits=[]; const s=String(text||'');
+                rules.forEach(r=>r.res.forEach(re=>{ re.lastIndex=0; let m; while((m=re.exec(s))){ hits.push({label:r.label, match:m[0]}); } }));
+                return hits;
+              }catch(_){ return []; }
+            }
             async function liveCheck(){
               const desc = document.getElementById('desc').value||'';
+              const el = document.getElementById('warn');
               try{
                 const r = await fetch('/api/compliance-check', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ changes: { description: desc } })});
                 const j = await r.json();
-                const el = document.getElementById('warn');
                 const hits = (j.results && j.results.description) ? j.results.description : [];
                 el.innerHTML = hits.length? ('自動チェック: '+hits.map(h=>h.label+':\"'+h.match+'\"').join(', ')) : '';
-              }catch(e){ /* noop */ }
+              }catch(e){
+                const hits = clientCompliance(desc);
+                el.innerHTML = hits.length? ('自動チェック(ローカル): '+hits.map(h=>h.label+':\"'+h.match+'\"').join(', ')) : '';
+              }
             }
             function updateSubmit(){
               try{
@@ -1665,12 +1678,11 @@ export function create_server() {
           <div style="background:#f9f9f9;border:1px solid #eee;padding:8px;border-radius:6px;margin:8px 0">
             <b>使い方</b>
             <ol style="margin:6px 0 0 18px; padding:0">
-              <li>上部の変更内容（JSON）を確認</li>
-              <li>「コンプライアンス（自動チェック）」の警告を確認</li>
-              <li>「チェックリスト」に沿って目視確認し、必要項目にチェック → 保存</li>
-              <li>承認（approved）または差戻し（needs_fix）を選択して状態更新</li>
+              <li>変更内容と差分を確認</li>
+              <li>自動チェックの警告を確認し必要に応じて対応</li>
+              <li>チェック保存 → 承認 or 差戻し</li>
             </ol>
-            <div style="margin-top:6px;color:#555">補足：オーナー確認の有無も表示されます。</div>
+            <div style="margin-top:6px;color:#555">オーナー確認の有無も表示されます。</div>
           </div>
           <pre id="payload" style="background:#f7f7f7;padding:8px;border:1px solid #eee">loading...</pre>
           <div id="err" style="color:#900"></div>
@@ -1758,6 +1770,7 @@ export function create_server() {
                   base = (baseJson && baseJson.item) ? baseJson.item : {};
                 }catch(e){ /* use empty base */ }
                 const after = item.changes || {};
+                try{ window.__after_changes = after; }catch(_){ window.__after_changes = after; }
                 const fields = [
                   ['phone','電話'], ['hours','営業時間'], ['url','URL'], ['description','説明'], ['photo_url','写真URL']
                 ];
@@ -1807,18 +1820,41 @@ export function create_server() {
                 }catch(e){}
               }catch(e){ document.getElementById('payload').textContent='取得に失敗しました'; }
             }
+            function clientCompliance(text){
+              try{
+                const rules=[
+                  {label:'過大表現',res:[/絶対/gi,/完全に治る/gi,/No\.?1/gi,/最高/gi,/最安/gi]},
+                  {label:'個人情報',res:[/氏名/gi,/電話番号/gi,/住所/gi]},
+                  {label:'ビフォーアフター',res:[/ビフォー/gi,/アフター/gi,/before after/gi]},
+                ];
+                const hits=[]; const s=String(text||'');
+                rules.forEach(r=>r.res.forEach(re=>{ re.lastIndex=0; let m; while((m=re.exec(s))){ hits.push({label:r.label, match:m[0]}); } }));
+                return hits;
+              }catch(_){ return []; }
+            }
             async function loadAuto(){
+              const el = document.getElementById('auto');
               try{
                 const j = await (await fetch('/api/change-requests/${id}/compliance', { credentials: 'same-origin' })).json();
-                const el = document.getElementById('auto');
-                if(!j.ok){ el.textContent='自動チェックの取得に失敗しました'; return; }
+                if(!j.ok){
+                  // fallback to client-side check
+                  const desc = (window.__after_changes && window.__after_changes.description) || '';
+                  const hits = clientCompliance(desc);
+                  el.innerHTML = hits.length? '<div style="color:#900"><b>説明</b>: '+hits.map(h=>h.label+':"'+h.match+'"').join(', ')+'</div>' : '<div style="color:#090">自動チェック: 問題なし</div>';
+                  return;
+                }
                 const res = j.results||{};
                 const rows = [];
                 if(res.description && res.description.length){
                   rows.push('<b>説明</b>: '+res.description.map(h=>h.label+':"'+h.match+'"').join(', '));
                 }
                 el.innerHTML = rows.length? rows.map(r=>'<div style="color:#900">'+r+'</div>').join('') : '<div style="color:#090">自動チェック: 問題なし</div>';
-              }catch(e){ document.getElementById('auto').textContent='自動チェックエラー'; }
+              }catch(e){
+                // network or parse error: client fallback
+                const desc = (window.__after_changes && window.__after_changes.description) || '';
+                const hits = clientCompliance(desc);
+                el.innerHTML = hits.length? '<div style="color:#900"><b>説明</b>: '+hits.map(h=>h.label+':"'+h.match+'"').join(', ')+'</div>' : '<div style="color:#090">自動チェック: 問題なし</div>';
+              }
             }
             async function loadAudit(){
               try{
